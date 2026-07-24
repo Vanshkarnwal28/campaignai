@@ -70,3 +70,6 @@ Thumbs.db
 
 # Firebase service account keys
 firebase-service-account.json
+
+# Mock database
+backend/mock-db.json

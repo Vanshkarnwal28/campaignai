@@ -38,7 +38,6 @@ import { api } from './services/api';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { AuthScreens } from './components/AuthScreens';
-import { AdminLoginScreen } from './components/AdminLoginScreen';
 import { AdminPortal } from './components/AdminPortal';
 import CampaignGenerator from './components/CampaignGenerator';
 import ConnectMeta from './components/ConnectMeta';
@@ -142,7 +141,7 @@ export default function App() {
 
     // Handle admin login route
     if (window.location.pathname === '/admin/login') {
-      setCurrentPage('admin-login');
+      setCurrentPage('auth');
       return;
     }
     
@@ -703,7 +702,7 @@ export default function App() {
           <footer style={{ borderTop: '1px solid var(--color-border)', padding: '40px 8%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
             <span>© 2026 CampaignAI Technologies. All rights reserved. Made for enterprise marketing automation.</span>
             <button
-              onClick={() => setCurrentPage('admin-login')}
+              onClick={() => setCurrentPage('auth')}
               style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.5, textDecoration: 'underline' }}
             >
               Admin Portal
@@ -751,34 +750,7 @@ export default function App() {
         />
       )}
 
-      {/* --- 2b. ADMIN LOGIN PORTAL (/admin/login) --- */}
-      {currentPage === 'admin-login' && (
-        <AdminLoginScreen
-          onAuthSuccess={async (adminUser) => {
-            setUser(adminUser);
-            // Load admin data directly with the returned user — don't rely on state
-            try {
-              await api.admin.getUsers();
-              const businesses = await api.admin.getBusinesses();
-              setAdminBusinesses(businesses);
-              const tickets = await api.admin.getTickets();
-              setAdminTickets(tickets);
-              const stats = await api.admin.getStats();
-              setAdminStats(stats);
-              const logs = await api.admin.getAuditLogs();
-              setAdminLogs(logs);
-              setCurrentPage('admin');
-            } catch (err: any) {
-              addToast('Admin Load Failed', err.message || 'Could not load admin data', 'alert');
-            }
-          }}
-          addToast={addToast}
-          onBackToUserLogin={() => {
-            window.history.replaceState({}, '', '/');
-            setCurrentPage('landing');
-          }}
-        />
-      )}
+
 
       {/* --- 2.5 ADMIN PORTAL --- */}
       {currentPage === 'admin' && (

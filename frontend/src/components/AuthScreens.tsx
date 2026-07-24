@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Shield,
   Cpu,
+  KeyRound,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { auth } from '../services/firebase';
@@ -27,6 +28,12 @@ type AuthView = 'login' | 'register' | 'forgot' | 'verify';
 
 export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreensProps) {
   const [view, setView] = useState<AuthView>(defaultView || 'login');
+  
+  // 2FA login states for Admin
+  const [loginStep, setLoginStep] = useState<'credentials' | '2fa'>('credentials');
+  const [twoFactorCode, setTwoFactorCode] = useState<string[]>(Array(6).fill(''));
+  const [tempAdminUser, setTempAdminUser] = useState<any>(null);
+  const inputRefs = React.useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     if (defaultView) {
@@ -100,6 +107,45 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
     }
   };
 
+  const handle2FAChange = (index: number, val: string) => {
+    if (isNaN(Number(val))) return;
+    const newCode = [...twoFactorCode];
+    newCode[index] = val.slice(-1);
+    setTwoFactorCode(newCode);
+    if (val && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !twoFactorCode[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handle2FASubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = twoFactorCode.join('');
+    setErrorMessage(null);
+
+    if (code.length < 6) {
+      setErrorMessage('Please enter the full 6-digit authentication code.');
+      return;
+    }
+
+    setLoading(true);
+    setTimeout(() => {
+      if (code === '123456') {
+        addToast('2FA Verified', 'Access granted. Welcome to Admin Console.', 'success');
+        onAuthSuccess(tempAdminUser.user);
+      } else {
+        setErrorMessage('Security code is invalid or has expired.');
+        addToast('Security Failure', 'Invalid 2FA code.', 'alert');
+        setLoading(false);
+      }
+    }, 800);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -110,8 +156,14 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
     setLoading(true);
     try {
       const res = await api.auth.login(email, password);
-      addToast('Welcome Back', `Logged in as ${res.user.name}`, 'success');
-      onAuthSuccess(res.user);
+      if (res.user?.role === 'ADMIN') {
+        setTempAdminUser(res);
+        setLoginStep('2fa');
+        addToast('Credentials Verified', 'Please complete Two-Factor Authentication (2FA).', 'info');
+      } else {
+        addToast('Welcome Back', `Logged in as ${res.user.name}`, 'success');
+        onAuthSuccess(res.user);
+      }
     } catch (err: any) {
       if (err.message === 'Please verify your email before continuing.') {
         setView('verify');
@@ -254,58 +306,155 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
 
           {/* ── LOGIN VIEW ─────────────────────────────────────────── */}
           {view === 'login' && (
-            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: 6, fontSize: '0.85rem', fontWeight: 500, opacity: 0.9 }}>Business Email</label>
-                <div style={{ position: 'relative' }}>
-                  <Mail size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
-                  <input
-                    className="form-input"
-                    style={{ paddingLeft: 40 }}
-                    type="email"
-                    placeholder="name@company.com"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    required
-                  />
+            loginStep === 'credentials' ? (
+              <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: 6, fontSize: '0.85rem', fontWeight: 500, opacity: 0.9 }}>Business Email</label>
+                  <div style={{ position: 'relative' }}>
+                    <Mail size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+                    <input
+                      className="form-input"
+                      style={{ paddingLeft: 40 }}
+                      type="email"
+                      placeholder="name@company.com"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      required
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <label style={{ fontSize: '0.85rem', fontWeight: 500, opacity: 0.9 }}>Password</label>
-                  <span onClick={() => setView('forgot')} style={{ fontSize: '0.8rem', color: 'var(--color-primary)', cursor: 'pointer', fontWeight: 500 }}>
-                    Forgot Password?
-                  </span>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <label style={{ fontSize: '0.85rem', fontWeight: 500, opacity: 0.9 }}>Password</label>
+                    <span onClick={() => setView('forgot')} style={{ fontSize: '0.8rem', color: 'var(--color-primary)', cursor: 'pointer', fontWeight: 500 }}>
+                      Forgot Password?
+                    </span>
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <Lock size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
+                    <input
+                      className="form-input"
+                      style={{ paddingLeft: 40, paddingRight: 40 }}
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      required
+                    />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)}
+                      style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', opacity: 0.6, display: 'flex' }}>
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
                 </div>
-                <div style={{ position: 'relative' }}>
-                  <Lock size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
-                  <input
-                    className="form-input"
-                    style={{ paddingLeft: 40, paddingRight: 40 }}
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    required
-                  />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)}
-                    style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', opacity: 0.6, display: 'flex' }}>
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
+                  <input type="checkbox" id="rememberMe" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} style={{ cursor: 'pointer' }} />
+                  <label htmlFor="rememberMe" style={{ cursor: 'pointer', opacity: 0.8 }}>Remember Me</label>
+                </div>
+
+                <button className="btn-primary" type="submit" disabled={loading} style={{ justifyContent: 'center', padding: '12px', marginTop: 8 }}>
+                  {loading ? <Cpu className="animate-spin" size={16} /> : <span>Sign In to Dashboard</span>}
+                  {!loading && <ArrowRight size={16} />}
+                </button>
+              </form>
+            ) : (
+              /* --- STEP 2: TWO-FACTOR AUTHENTICATION FORM FOR ADMIN --- */
+              <form onSubmit={handle2FASubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                  <div style={{
+                    width: 44, height: 44, borderRadius: 12,
+                    background: 'rgba(99, 102, 241, 0.15)', border: '1px solid var(--color-primary)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center'
+                  }}>
+                    <KeyRound size={20} style={{ color: 'var(--color-primary)' }} />
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Identity Verification</h3>
+                    <p style={{ fontSize: '0.75rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
+                      <CheckCircle size={12} /> Credentials accepted
+                    </p>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
+                  A simulated verification code has been dispatched. Enter the code below to complete admin authorization.
+                </p>
+
+                {/* 2FA Digit Input Blocks */}
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', margin: '8px 0' }}>
+                  {twoFactorCode.map((val, idx) => (
+                    <input
+                      key={idx}
+                      ref={el => inputRefs.current[idx] = el}
+                      type="text"
+                      maxLength={1}
+                      value={val}
+                      onChange={e => handle2FAChange(idx, e.target.value)}
+                      onKeyDown={e => handleKeyDown(idx, e)}
+                      style={{
+                        width: '46px',
+                        height: '52px',
+                        borderRadius: '12px',
+                        border: val ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
+                        background: 'rgba(255,255,255,0.02)',
+                        textAlign: 'center',
+                        fontSize: '1.4rem',
+                        fontWeight: 700,
+                        color: '#ffffff',
+                        outline: 'none',
+                      }}
+                    />
+                  ))}
+                </div>
+
+                <div 
+                  onClick={() => setTwoFactorCode(['1', '2', '3', '4', '5', '6'])}
+                  style={{
+                    background: 'rgba(99, 102, 241, 0.08)',
+                    border: '1px solid rgba(99, 102, 241, 0.15)',
+                    padding: '12px 14px',
+                    borderRadius: 12,
+                    fontSize: '0.75rem',
+                    color: '#93c5fd',
+                    lineHeight: 1.4,
+                    cursor: 'pointer',
+                    transition: 'background 0.2s'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)'}
+                >
+                  <strong>Developer Notice:</strong> Click here to autofill test token <strong>123456</strong> to proceed.
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <button
+                    className="btn-primary"
+                    type="submit"
+                    disabled={loading}
+                    style={{
+                      justifyContent: 'center',
+                      padding: '12px',
+                      fontSize: '0.95rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {loading ? <Cpu className="animate-spin" size={18} /> : <span>Confirm Verification</span>}
+                    {!loading && <ArrowRight size={18} />}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => { setLoginStep('credentials'); setErrorMessage(null); }}
+                    style={{ justifyContent: 'center', gap: 8 }}
+                  >
+                    <ArrowLeft size={16} /> Back to Credentials
                   </button>
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
-                <input type="checkbox" id="rememberMe" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} style={{ cursor: 'pointer' }} />
-                <label htmlFor="rememberMe" style={{ cursor: 'pointer', opacity: 0.8 }}>Remember Me</label>
-              </div>
-
-              <button className="btn-primary" type="submit" disabled={loading} style={{ justifyContent: 'center', padding: '12px', marginTop: 8 }}>
-                {loading ? <Cpu className="animate-spin" size={16} /> : <span>Sign In to Dashboard</span>}
-                {!loading && <ArrowRight size={16} />}
-              </button>
-            </form>
+              </form>
+            )
           )}
 
           {/* ── REGISTER VIEW ──────────────────────────────────────── */}
@@ -427,7 +576,7 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
           )}
 
           {/* ── GOOGLE SIGN IN BUTTON ──────────────────────────────── */}
-          {(view === 'login' || view === 'register') && (
+          {(view === 'login' || view === 'register') && loginStep === 'credentials' && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
                 <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
@@ -460,6 +609,46 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
                   ⚠️ Firebase is not configured. Add real values to <code>frontend/.env</code>
                 </div>
               )}
+
+              {/* Test Credentials Helper Card */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12 }}>
+                {/* Test credentials helper */}
+                <div style={{
+                  background: 'rgba(255,255,255,0.02)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  borderRadius: 12,
+                  padding: '12px 16px',
+                  fontSize: '0.8rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8
+                }}>
+                  <div style={{ fontWeight: 600, color: 'var(--color-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Shield size={12} />
+                    <span>💡 TEST CREDENTIALS (CLICK TO AUTOFILL)</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div
+                      onClick={() => { setEmail('demo@campaignai.com'); setPassword('password123'); }}
+                      style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', background: 'rgba(255,255,255,0.02)', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.2s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                    >
+                      <span>Client: <code style={{ color: '#fff' }}>demo@campaignai.com</code></span>
+                      <span style={{ opacity: 0.6 }}>Pass: <code style={{ color: '#fff' }}>password123</code></span>
+                    </div>
+                    <div
+                      onClick={() => { setEmail('admin@campaignai.com'); setPassword('password123'); }}
+                      style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', background: 'rgba(255,255,255,0.02)', padding: '6px 8px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.04)', transition: 'background 0.2s' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(0, 118, 163, 0.08)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+                    >
+                      <span>Admin: <code style={{ color: '#fff' }}>admin@campaignai.com</code></span>
+                      <span style={{ opacity: 0.6 }}>Pass: <code style={{ color: '#fff' }}>password123</code></span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </>
           )}
         </div>

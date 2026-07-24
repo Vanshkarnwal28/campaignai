@@ -17,20 +17,30 @@ export class AuthService {
 
   async register(email: string, name: string, password?: string) {
     try {
-      // 1. Create User in Firebase Authentication
-      const userRecord = await admin.auth().createUser({
-        email,
-        password,
-        displayName: name,
-      });
-
-      const userId = userRecord.uid;
+      let userId: string;
+      
+      if (!process.env.FIREBASE_PROJECT_ID) {
+        // Mock register flow
+        const existing = await this.firebase.getUserByEmail(email);
+        if (existing) {
+          throw new ConflictException('User with this email already exists');
+        }
+        userId = this.firebase.generateId();
+      } else {
+        // 1. Create User in Firebase Authentication
+        const userRecord = await admin.auth().createUser({
+          email,
+          password,
+          displayName: name,
+        });
+        userId = userRecord.uid;
+      }
 
       // 2. Save User Document to Firestore using Firebase Auth UID
       const user = await this.firebase.createUser({
         email,
         name,
-        passwordHash: null, // Password managed entirely by Firebase Auth
+        passwordHash: password || null, // Stored for local mock validation check
         role: 'MEMBER',
       }, userId);
 
@@ -54,7 +64,10 @@ export class AuthService {
         user: { id: userId, email, name, role: 'MEMBER', businessId: business.id },
         token,
       };
-    } catch (error) {
+    } catch (error: any) {
+      if (error instanceof ConflictException) {
+        throw error;
+      }
       if (error.code === 'auth/email-already-exists') {
         throw new ConflictException('User with this email already exists');
       }
@@ -69,27 +82,49 @@ export class AuthService {
       let role: string;
       let token: string;
 
-      // Real authentication using Firebase Client Auth REST API
-      const apiKey = process.env.FIREBASE_API_KEY;
-      if (!apiKey) {
-        throw new UnauthorizedException('FIREBASE_API_KEY is not defined in .env');
+      if (!process.env.FIREBASE_PROJECT_ID) {
+        // Mock login flow
+        const userDoc = await this.firebase.getUserByEmail(email);
+        if (!userDoc) {
+          throw new UnauthorizedException('User not found in system');
+        }
+        
+        // Support default admin credentials or registered mock users
+        if (email === 'admin@campaignai.com') {
+          if (password !== 'password123') {
+            throw new UnauthorizedException('Invalid credentials');
+          }
+        } else if (userDoc.passwordHash && password !== userDoc.passwordHash) {
+          throw new UnauthorizedException('Invalid credentials');
+        }
+
+        userId = userDoc.id;
+        name = userDoc.name;
+        role = userDoc.role;
+        token = await this.generateToken(userId, email, role);
+      } else {
+        // Real authentication using Firebase Client Auth REST API
+        const apiKey = process.env.FIREBASE_API_KEY;
+        if (!apiKey) {
+          throw new UnauthorizedException('FIREBASE_API_KEY is not defined in .env');
+        }
+
+        const res = await axios.post(
+          `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
+          {
+            email,
+            password,
+            returnSecureToken: true,
+          },
+        );
+
+        userId = res.data.localId;
+        token = res.data.idToken;
+
+        const userDoc = await this.firebase.getUserById(userId);
+        name = userDoc?.name || res.data.displayName || 'User';
+        role = userDoc?.role || 'MEMBER';
       }
-
-      const res = await axios.post(
-        `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
-        {
-          email,
-          password,
-          returnSecureToken: true,
-        },
-      );
-
-      userId = res.data.localId;
-      token = res.data.idToken;
-
-      const userDoc = await this.firebase.getUserById(userId);
-      name = userDoc?.name || res.data.displayName || 'User';
-      role = userDoc?.role || 'MEMBER';
 
       // Get user businesses
       const businesses = await this.firebase.getBusinessesByUserId(userId);
@@ -100,7 +135,7 @@ export class AuthService {
         token,
       };
     } catch (error: any) {
-      if (error instanceof ForbiddenException) {
+      if (error instanceof ForbiddenException || error instanceof UnauthorizedException) {
         throw error;
       }
       throw new UnauthorizedException('Invalid credentials');

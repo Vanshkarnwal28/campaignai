@@ -1,56 +1,324 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import * as admin from 'firebase-admin';
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 
-/**
- * FirebaseService — Firestore Admin SDK wrapper.
- *
- * Replaces DatabaseService (PrismaClient) across the entire application.
- * Provides typed CRUD helpers for every Firestore collection, preserving
- * the same data shape that Prisma models used.
- *
- * Collections:
- *   users, businesses, businessProfiles, campaigns, adSets, ads, creatives,
- *   analytics, optimizationHistories, notifications, subscriptions,
- *   supportTickets, activityLogs, aiConversations, metaAccounts,
- *   contentCalendar, generatedContent, leads
- */
+class MockDocument {
+  constructor(public id: string, public exists: boolean, private _data: any = null) {}
+  data() {
+    return this._data;
+  }
+}
+
+class MockQuerySnapshot {
+  constructor(public docs: MockDocument[]) {}
+  get empty() {
+    return this.docs.length === 0;
+  }
+}
+
+class MockCollection {
+  constructor(private colName: string, private db: any) {}
+
+  doc(id?: string) {
+    const docId = id || randomUUID();
+    return {
+      set: async (data: any, options?: { merge?: boolean }) => {
+        this.db.setDoc(this.colName, docId, data, options?.merge);
+        return { id: docId };
+      },
+      get: async () => {
+        const data = this.db.getDoc(this.colName, docId);
+        return new MockDocument(docId, !!data, data);
+      },
+      update: async (data: any) => {
+        this.db.setDoc(this.colName, docId, data, true);
+        return { id: docId };
+      },
+      delete: async () => {
+        this.db.deleteDoc(this.colName, docId);
+        return { id: docId };
+      }
+    };
+  }
+
+  where(field: string, op: string, val: any) {
+    return new MockQuery(this.colName, this.db, [{ field, op, val }]);
+  }
+
+  orderBy(field: string, dir: 'asc' | 'desc' = 'asc') {
+    return new MockQuery(this.colName, this.db, [], { field, dir });
+  }
+
+  limit(n: number) {
+    return new MockQuery(this.colName, this.db, [], null, n);
+  }
+
+  async get() {
+    const docs = this.db.getDocs(this.colName);
+    return new MockQuerySnapshot(docs);
+  }
+
+  count() {
+    return {
+      get: async () => {
+        const count = this.db.getDocs(this.colName).length;
+        return { data: () => ({ count }) };
+      }
+    };
+  }
+}
+
+class MockQuery {
+  constructor(
+    private colName: string,
+    private db: any,
+    private wheres: any[] = [],
+    private order: any = null,
+    private limitVal: number | null = null
+  ) {}
+
+  where(field: string, op: string, val: any) {
+    this.wheres.push({ field, op, val });
+    return this;
+  }
+
+  orderBy(field: string, dir: 'asc' | 'desc' = 'asc') {
+    this.order = { field, dir };
+    return this;
+  }
+
+  limit(n: number) {
+    this.limitVal = n;
+    return this;
+  }
+
+  async get() {
+    let docs = this.db.getDocs(this.colName);
+
+    // Apply wheres
+    for (const w of this.wheres) {
+      docs = docs.filter((d: any) => {
+        const data = d.data();
+        const fieldVal = data ? data[w.field] : undefined;
+        if (w.op === '==') return fieldVal === w.val;
+        if (w.op === 'array-contains') {
+          return Array.isArray(fieldVal) && fieldVal.includes(w.val);
+        }
+        return false;
+      });
+    }
+
+    // Apply orderBy
+    if (this.order) {
+      docs.sort((a: any, b: any) => {
+        const dataA = a.data();
+        const dataB = b.data();
+        const valA = dataA ? dataA[this.order.field] : undefined;
+        const valB = dataB ? dataB[this.order.field] : undefined;
+        if (valA === valB) return 0;
+        if (valA === undefined) return 1;
+        if (valB === undefined) return -1;
+        const multiplier = this.order.dir === 'desc' ? -1 : 1;
+        return valA < valB ? -1 * multiplier : 1 * multiplier;
+      });
+    }
+
+    // Apply limit
+    if (this.limitVal !== null) {
+      docs = docs.slice(0, this.limitVal);
+    }
+
+    return new MockQuerySnapshot(docs);
+  }
+}
+
+class MockDb {
+  private cache: Record<string, Record<string, any>> = {};
+  private filePath = path.join(process.cwd(), 'mock-db.json');
+
+  constructor() {
+    this.load();
+  }
+
+  private load() {
+    try {
+      if (fs.existsSync(this.filePath)) {
+        this.cache = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
+      }
+    } catch (e) {
+      console.error('Failed to load mock-db.json:', e);
+    }
+  }
+
+  private save() {
+    try {
+      fs.writeFileSync(this.filePath, JSON.stringify(this.cache, null, 2), 'utf8');
+    } catch (e) {
+      console.error('Failed to save mock-db.json:', e);
+    }
+  }
+
+  getDoc(colName: string, docId: string) {
+    if (!this.cache[colName]) return null;
+    return this.cache[colName][docId] || null;
+  }
+
+  setDoc(colName: string, docId: string, data: any, merge = false) {
+    if (!this.cache[colName]) this.cache[colName] = {};
+    
+    // Convert Dates to ISO strings for JSON compatibility
+    const cleanData = JSON.parse(JSON.stringify(data, (key, value) => {
+      if (value instanceof Date) {
+        return value.toISOString();
+      }
+      return value;
+    }));
+
+    if (merge) {
+      this.cache[colName][docId] = {
+        ...(this.cache[colName][docId] || {}),
+        ...cleanData,
+        id: docId
+      };
+    } else {
+      this.cache[colName][docId] = {
+        ...cleanData,
+        id: docId
+      };
+    }
+    this.save();
+  }
+
+  deleteDoc(colName: string, docId: string) {
+    if (this.cache[colName] && this.cache[colName][docId]) {
+      delete this.cache[colName][docId];
+      this.save();
+    }
+  }
+
+  getDocs(colName: string) {
+    const col = this.cache[colName] || {};
+    return Object.keys(col).map(id => new MockDocument(id, true, col[id]));
+  }
+}
+
 @Injectable()
 export class FirebaseService implements OnModuleInit {
-  private db: admin.firestore.Firestore;
+  private db: any;
   private readonly logger = new Logger(FirebaseService.name);
 
   onModuleInit() {
-    // Prevent re-initialising on hot-reload
-    if (admin.apps.length === 0) {
-      const fs = require('fs');
-      const path = require('path');
-      const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
+    const isMock = !process.env.FIREBASE_PROJECT_ID;
 
-      if (fs.existsSync(serviceAccountPath)) {
-        this.logger.log(`Loading Firebase Admin credentials from local JSON file: ${serviceAccountPath}`);
-        const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-        admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount),
-        });
-      } else {
-        this.logger.log('Firebase credentials JSON file not found locally. Falling back to environment variables.');
-        admin.initializeApp({
-          credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-          }),
-        });
+    if (isMock) {
+      this.logger.log('FIREBASE_PROJECT_ID not set. Initializing local MockFirestore service.');
+      this.db = new MockDb();
+      
+      const mockAuthObj = {
+        createUser: async (properties: any) => {
+          const uid = randomUUID();
+          return { uid, email: properties.email, displayName: properties.displayName };
+        },
+        getUser: async (uid: string) => {
+          const userDoc = await this.getUserById(uid);
+          if (!userDoc) throw new Error('User not found');
+          return { uid, email: userDoc.email, displayName: userDoc.name };
+        },
+        verifyIdToken: async (token: string) => {
+          try {
+            const parts = token.split('.');
+            if (parts.length !== 3) throw new Error('Invalid token');
+            const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
+            return {
+              uid: payload.sub || payload.uid,
+              email: payload.email,
+              name: payload.name || payload.displayName,
+            };
+          } catch (e) {
+            throw new Error('Invalid token');
+          }
+        },
+        generatePasswordResetLink: async (email: string) => `http://localhost:3000/reset?email=${email}`,
+        generateEmailVerificationLink: async (email: string) => `http://localhost:3000/verify?email=${email}`,
+      };
+
+      Object.defineProperty(admin, 'auth', {
+        value: () => mockAuthObj,
+        writable: true,
+        configurable: true,
+      });
+
+      this.seedAdminUserIfNeeded();
+    } else {
+      // Prevent re-initialising on hot-reload
+      if (admin.apps.length === 0) {
+        const fs = require('fs');
+        const path = require('path');
+        const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
+
+        if (fs.existsSync(serviceAccountPath)) {
+          this.logger.log(`Loading Firebase Admin credentials from local JSON file: ${serviceAccountPath}`);
+          const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+          admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+          });
+        } else {
+          this.logger.log('Firebase credentials JSON file not found locally. Falling back to environment variables.');
+          admin.initializeApp({
+            credential: admin.credential.cert({
+              projectId: process.env.FIREBASE_PROJECT_ID,
+              clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+              privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            }),
+          });
+        }
       }
+      this.db = admin.firestore();
+      this.logger.log('Firebase Firestore initialised successfully');
     }
-    this.db = admin.firestore();
-    this.logger.log('Firebase Firestore initialised successfully');
+  }
+
+  private async seedAdminUserIfNeeded() {
+    try {
+      const adminEmail = 'admin@campaignai.com';
+      const existing = await this.getUserByEmail(adminEmail);
+      if (!existing) {
+        this.logger.log(`Seeding default admin user: ${adminEmail}`);
+        const adminId = 'admin-user-id';
+        await this.createUser({
+          email: adminEmail,
+          name: 'CampaignAI Admin',
+          passwordHash: 'password123',
+          role: 'ADMIN',
+        }, adminId);
+
+        const business = await this.createBusiness({
+          name: 'CampaignAI Enterprise',
+          ownerId: adminId,
+        });
+
+        await this.createSubscription({
+          businessId: business.id,
+          plan: 'ENTERPRISE',
+          status: 'ACTIVE',
+          currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+        });
+
+        this.logger.log('Seeding default admin user completed.');
+      }
+    } catch (e) {
+      this.logger.error('Failed to seed default admin user:', e);
+    }
   }
 
   // ─── Internal helpers ────────────────────────────────────────────────────────
 
   private col(name: string) {
+    if (!process.env.FIREBASE_PROJECT_ID) {
+      return new MockCollection(name, this.db) as any;
+    }
     return this.db.collection(name);
   }
 
