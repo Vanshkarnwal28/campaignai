@@ -299,13 +299,13 @@ export class FirebaseService implements OnModuleInit {
         const adminId = 'admin-user-id';
         await this.createUser({
           email: adminEmail,
-          name: 'CampaignAI Admin',
+          name: 'DIPARI AI Admin',
           passwordHash: 'password123',
           role: 'ADMIN',
         }, adminId);
 
         const business = await this.createBusiness({
-          name: 'CampaignAI Enterprise',
+          name: 'DIPARI AI Enterprise',
           ownerId: adminId,
         });
 

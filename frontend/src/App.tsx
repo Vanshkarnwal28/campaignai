@@ -76,7 +76,7 @@ export default function App() {
   // Chat Assistant sliding drawer state
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<any[]>([
-    { role: 'model', content: "Hello! 👋 I am the official CampaignAI Help Assistant. How can I help you with CampaignAI today? Ask me about account setup, Meta integration, creating campaigns, content scheduling, lead CRM, analytics, or platform features!" }
+    { role: 'model', content: "Hello! 👋 I am the official DIPARI AI Help Assistant. How can I help you with DIPARI AI today? Ask me about account setup, Meta integration, creating campaigns, content scheduling, lead CRM, analytics, or platform features!" }
   ]);
   const [assistantInput, setAssistantInput] = useState('');
   const [currentConvoId, setCurrentConvoId] = useState<string | undefined>(undefined);
@@ -784,7 +784,7 @@ export default function App() {
 
           {/* Footer */}
           <footer style={{ borderTop: '1px solid var(--color-border)', padding: '40px 8%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
-            <span>© 2026 CampaignAI Technologies. All rights reserved. Made for enterprise marketing automation.</span>
+            <span>© 2026 DIPARI AI Technologies. All rights reserved. Made for enterprise marketing automation.</span>
             <button
               onClick={() => setCurrentPage('auth')}
               style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.5, textDecoration: 'underline' }}
@@ -824,7 +824,7 @@ export default function App() {
             if (!syncedUser.onboardingCompleted) {
               const qList = await api.business.getQuestions();
               setOnboardingQuestions(qList);
-              setChatbotMessages([{ role: 'model', content: `Hello ${syncedUser.name}! I am the CampaignAI Business Planner. Let's design your high-converting marketing strategy. ${qList[0]}` }]);
+              setChatbotMessages([{ role: 'model', content: `Hello ${syncedUser.name}! I am the DIPARI AI Business Planner. Let's design your high-converting marketing strategy. ${qList[0]}` }]);
               setCurrentPage('onboarding');
             } else {
               setCurrentPage('dashboard');
@@ -849,7 +849,7 @@ export default function App() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 40 }}>
                 <span style={{ fontSize: '1.4rem' }}>🚀</span>
-                <span style={{ fontWeight: 800 }}>CampaignAI</span>
+                <span style={{ fontWeight: 800 }}>DIPARI AI</span>
               </div>
               <h3 style={{ fontSize: '1.2rem', marginBottom: 12 }}>Onboarding Chatbot</h3>
               <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', lineHeight: 1.5 }}>
@@ -951,7 +951,7 @@ export default function App() {
                 {!sidebarCollapsed && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: '1.4rem' }}>🚀</span>
-                    <span style={{ fontWeight: 800, fontFamily: 'var(--font-display)' }}>CampaignAI</span>
+                    <span style={{ fontWeight: 800, fontFamily: 'var(--font-display)' }}>DIPARI AI</span>
                   </div>
                 )}
                 <button style={{
@@ -1737,7 +1737,7 @@ export default function App() {
                 }}>
                   <Cpu size={18} style={{ color: 'var(--color-primary)' }} />
                   <div>
-                    <h4 style={{ fontSize: '0.9rem' }}>CampaignAI Help Bot</h4>
+                    <h4 style={{ fontSize: '0.9rem' }}>DIPARI AI Help Bot</h4>
                     <div style={{ fontSize: '0.7rem', color: 'var(--color-success)' }}>Official Support Assistant</div>
                   </div>
                 </div>
@@ -1762,7 +1762,7 @@ export default function App() {
 
                 {/* Input area */}
                 <form onSubmit={sendAssistantMessage} style={{ padding: 16, borderTop: '1px solid var(--color-border)', display: 'flex', gap: 10 }}>
-                  <input className="form-input" placeholder="Ask a question about CampaignAI..." value={assistantInput} onChange={e => setAssistantInput(e.target.value)} style={{ padding: 10, fontSize: '0.8rem' }} />
+                  <input className="form-input" placeholder="Ask a question about DIPARI AI..." value={assistantInput} onChange={e => setAssistantInput(e.target.value)} style={{ padding: 10, fontSize: '0.8rem' }} />
                   <button className="btn-primary" type="submit" style={{ padding: 10 }}><Send size={14} /></button>
                 </form>
               </div>

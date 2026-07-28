@@ -1540,7 +1540,7 @@ export function AdminPortal({ user, onLogout, addToast }: AdminPortalProps) {
                 <div className="glass-panel" style={{ padding: 24, background: 'rgba(11,34,64,0.05)', border: '1px solid rgba(0,118,163,0.15)' }}>
                   <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: 12 }}>Manual Snippet Injection Hub</h3>
                   <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: 12, lineHeight: 1.4 }}>
-                    Deploy the CampaignAI indexing and leads tracking snippet into your clients WordPress or Shopify sites.
+                    Deploy the DIPARI AI indexing and leads tracking snippet into your clients WordPress or Shopify sites.
                   </p>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
