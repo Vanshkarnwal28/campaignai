@@ -252,7 +252,7 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
           <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: '2.5rem' }}>🚀</span>
             <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '2.2rem', fontWeight: 800, letterSpacing: '-0.04em' }}>
-              Campaign<span className="text-gradient">AI</span>
+              DIPARI <span className="text-gradient">AI</span>
             </h2>
             <p style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
               Autonomous Meta advertising channels powered by intelligence
