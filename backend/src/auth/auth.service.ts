@@ -15,7 +15,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  async register(email: string, name: string, password?: string) {
+  async register(email: string, name: string, password?: string, preferredLanguage?: string) {
     try {
       let userId: string;
       
@@ -42,6 +42,7 @@ export class AuthService {
         name,
         passwordHash: password || null, // Stored for local mock validation check
         role: 'MEMBER',
+        preferredLanguage: preferredLanguage || 'English',
       }, userId);
 
       // 3. Create default Business workspace
@@ -61,7 +62,7 @@ export class AuthService {
       // Return local token fallback or custom token
       const token = await this.generateToken(userId, email, 'MEMBER');
       return {
-        user: { id: userId, email, name, role: 'MEMBER', businessId: business.id },
+        user: { id: userId, email, name, role: 'MEMBER', businessId: business.id, preferredLanguage: preferredLanguage || 'English' },
         token,
       };
     } catch (error: any) {
@@ -175,7 +176,7 @@ export class AuthService {
     return this.jwtService.sign({ sub: userId, email, role });
   }
 
-  async syncUserProfile(userId: string, email: string, name: string, businessName?: string) {
+  async syncUserProfile(userId: string, email: string, name: string, businessName?: string, preferredLanguage?: string) {
     let user = await this.firebase.getUserById(userId);
     let businessId: string | null = null;
     let bName: string | null = null;
@@ -187,6 +188,7 @@ export class AuthService {
         name,
         passwordHash: null,
         role: 'MEMBER',
+        preferredLanguage: preferredLanguage || 'English',
       }, userId);
 
       // 2. Create default Business workspace
@@ -209,6 +211,14 @@ export class AuthService {
       const businesses = await this.firebase.getBusinessesByUserId(userId);
       businessId = businesses[0]?.id || null;
       bName = businesses[0]?.name || null;
+
+      // Update preferredLanguage if passed and different
+      if (preferredLanguage && user.preferredLanguage !== preferredLanguage) {
+        user = await this.firebase.createUser({
+          ...user,
+          preferredLanguage,
+        }, userId);
+      }
     }
 
     return {
@@ -219,8 +229,18 @@ export class AuthService {
         role: user.role,
         businessId,
         businessName: bName,
+        preferredLanguage: user.preferredLanguage || 'English',
       },
     };
+  }
+  async updateUserLanguage(userId: string, preferredLanguage: string) {
+    const user = await this.firebase.getUserById(userId);
+    if (user) {
+      await this.firebase.createUser({
+        ...user,
+        preferredLanguage,
+      }, userId);
+    }
   }
 
   async validateUser(userId: string) {
@@ -233,6 +253,7 @@ export class AuthService {
           name: userRecord.displayName || 'User',
           passwordHash: null,
           role: 'MEMBER',
+          preferredLanguage: 'English',
         }, userId);
 
         const business = await this.firebase.createBusiness({

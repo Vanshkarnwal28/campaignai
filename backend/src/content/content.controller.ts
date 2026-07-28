@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
@@ -16,12 +17,42 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 export class ContentController {
   constructor(private readonly contentService: ContentService) {}
 
-  /** POST /content/generate-plan — generate a 5-day content calendar */
+  /** POST /content/generate-plan — generate a content calendar with posting days and duration */
   @Post('generate-plan')
   async generatePlan(
-    @Body() body: { businessId: string; industry?: string },
+    @Body() body: { 
+      businessId: string; 
+      selectedDays?: string[]; 
+      durationWeeks?: number; 
+      industry?: string;
+    },
   ) {
-    return this.contentService.generateContentPlan(body.businessId, body.industry);
+    const selectedDays = body.selectedDays || ['Monday', 'Wednesday', 'Friday'];
+    const durationWeeks = body.durationWeeks || 1;
+    return this.contentService.generateContentPlan(
+      body.businessId, 
+      selectedDays, 
+      durationWeeks, 
+      body.industry
+    );
+  }
+
+  /** DELETE /content/calendar/:id — delete a calendar row */
+  @Delete('calendar/:id')
+  async deleteCalendarEntry(@Param('id') id: string) {
+    return this.contentService.deleteCalendarEntry(id);
+  }
+
+  /** POST /content/calendar/:id/regenerate — regenerate calendar post content with AI */
+  @Post('calendar/:id/regenerate')
+  async regenerateCalendarEntry(@Param('id') id: string) {
+    return this.contentService.regenerateCalendarEntry(id);
+  }
+
+  /** POST /content/calendar — create a single calendar entry */
+  @Post('calendar')
+  async createEntry(@Body() body: any) {
+    return this.contentService.createCalendarEntry(body);
   }
 
   /** GET /content/calendar?businessId=xxx — fetch content calendar entries */

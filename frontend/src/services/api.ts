@@ -44,9 +44,23 @@ export const api = {
   // ─── Auth API ───────────────────────────────────────────────────────────────
 
   auth: {
-    async register(email: string, name: string, password?: string, businessName?: string) {
+    async register(email: string, name: string, password?: string, businessName?: string, preferredLanguage?: string) {
       const { auth } = getFirebaseInstances();
-      if (!auth) throw new Error('Firebase Auth not initialized. Check frontend/.env configuration.');
+      if (!auth) {
+        console.warn('[Firebase Auth fallback] Firebase is not initialized. Registering directly with backend.');
+        const res = await fetch(`${BASE_URL}/auth/register`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, name, password, businessName, preferredLanguage }),
+        });
+        const data = await handleResponse(res);
+        if (data.token) {
+          localStorage.setItem('campaignai_token', data.token);
+        }
+        return data;
+      }
 
       const userCred = await createUserWithEmailAndPassword(auth, email, password!);
       const user = userCred.user;
@@ -63,7 +77,7 @@ export const api = {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ name, businessName }),
+        body: JSON.stringify({ name, businessName, preferredLanguage }),
       });
       const data = await handleResponse(res);
       if (token) {
@@ -74,7 +88,21 @@ export const api = {
 
     async login(email: string, password?: string) {
       const { auth } = getFirebaseInstances();
-      if (!auth) throw new Error('Firebase Auth not initialized. Check frontend/.env configuration.');
+      if (!auth) {
+        console.warn('[Firebase Auth fallback] Firebase is not initialized. Logging in directly with backend.');
+        const res = await fetch(`${BASE_URL}/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await handleResponse(res);
+        if (data.token) {
+          localStorage.setItem('campaignai_token', data.token);
+        }
+        return data;
+      }
 
       const userCred = await signInWithEmailAndPassword(auth, email, password!);
       const user = userCred.user;
@@ -97,7 +125,21 @@ export const api = {
 
     async adminLogin(email: string, password?: string) {
       const { auth } = getFirebaseInstances();
-      if (!auth) throw new Error('Firebase Auth not initialized. Check frontend/.env configuration.');
+      if (!auth) {
+        console.warn('[Firebase Auth fallback] Firebase is not initialized. Logging in as admin directly with backend.');
+        const res = await fetch(`${BASE_URL}/auth/admin/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await handleResponse(res);
+        if (data.token) {
+          localStorage.setItem('campaignai_token', data.token);
+        }
+        return data;
+      }
 
       const userCred = await signInWithEmailAndPassword(auth, email, password!);
       const user = userCred.user;
@@ -163,6 +205,19 @@ export const api = {
       return await handleResponse(res);
     },
 
+    async updateLanguage(preferredLanguage: string) {
+      const token = localStorage.getItem('campaignai_token');
+      const res = await fetch(`${BASE_URL}/auth/profile/language`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ preferredLanguage }),
+      });
+      return await handleResponse(res);
+    },
+
     async logout() {
       localStorage.removeItem('campaignai_token');
       const { auth } = getFirebaseInstances();
@@ -175,8 +230,11 @@ export const api = {
   // ─── Business Onboarding API ─────────────────────────────────────────────────
 
   business: {
-    async getQuestions() {
-      const res = await fetch(`${BASE_URL}/business/onboarding/questions`, {
+    async getQuestions(lang?: string) {
+      const url = lang 
+        ? `${BASE_URL}/business/onboarding/questions?lang=${encodeURIComponent(lang)}`
+        : `${BASE_URL}/business/onboarding/questions`;
+      const res = await fetch(url, {
         headers: getHeaders(),
       });
       return await handleResponse(res);
@@ -214,6 +272,49 @@ export const api = {
     async getProfile(businessId: string) {
       const res = await fetch(`${BASE_URL}/business/${businessId}/profile`, {
         headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
+    async getProfileDetails(businessId: string) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/profile-details`, {
+        headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
+    async updateProfile(businessId: string, profileData: any) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/profile`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(profileData),
+      });
+      return await handleResponse(res);
+    },
+
+    async upgradePlan(businessId: string, plan: string) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/subscription/upgrade`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ plan }),
+      });
+      return await handleResponse(res);
+    },
+
+    async renewSubscription(businessId: string) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/subscription/renew`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({}),
+      });
+      return await handleResponse(res);
+    },
+
+    async cancelSubscription(businessId: string) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/subscription/cancel`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({}),
       });
       return await handleResponse(res);
     },
@@ -366,11 +467,20 @@ export const api = {
   // ─── Content API ──────────────────────────────────────────────────────────────
 
   content: {
-    async generatePlan(businessId: string, industry?: string) {
+    async generatePlan(businessId: string, payload: { selectedDays: string[]; durationWeeks: number; industry?: string }) {
       const res = await fetch(`${BASE_URL}/content/generate-plan`, {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ businessId, industry }),
+        body: JSON.stringify({ businessId, ...payload }),
+      });
+      return await handleResponse(res);
+    },
+
+    async createEntry(data: any) {
+      const res = await fetch(`${BASE_URL}/content/calendar`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(data),
       });
       return await handleResponse(res);
     },
@@ -402,6 +512,22 @@ export const api = {
         method: 'PATCH',
         headers: getHeaders(),
         body: JSON.stringify(data),
+      });
+      return await handleResponse(res);
+    },
+
+    async deleteEntry(entryId: string) {
+      const res = await fetch(`${BASE_URL}/content/calendar/${entryId}`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
+    async regenerateEntry(entryId: string) {
+      const res = await fetch(`${BASE_URL}/content/calendar/${entryId}/regenerate`, {
+        method: 'POST',
+        headers: getHeaders(),
       });
       return await handleResponse(res);
     },

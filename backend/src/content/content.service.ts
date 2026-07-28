@@ -21,10 +21,14 @@ export class ContentService {
   /**
    * Generate a full weekly content calendar using business profile context.
    */
-  async generateContentPlan(businessId: string, industry?: string) {
-    this.logger.log(`Generating weekly content plan for business: ${businessId}`);
+  async generateContentPlan(
+    businessId: string, 
+    selectedDays: string[], 
+    durationWeeks: number, 
+    industry?: string
+  ) {
+    this.logger.log(`Generating content plan. Business: ${businessId}, Days: ${selectedDays.join(', ')}, Weeks: ${durationWeeks}`);
 
-    // Fetch business profile for context-aware generation
     let profile: any = null;
     try {
       profile = await this.firebase.getBusinessProfile(businessId);
@@ -37,7 +41,6 @@ export class ContentService {
       brandTone: profile.brandTone || profile.brandVoice || 'professional',
       productsServices: profile.productsServices || '',
       businessUSP: profile.businessUSP || '',
-      postingFrequency: profile.postingFrequency || '5 times/week',
       languages: profile.languages || 'English',
     } : {
       businessName: 'the business',
@@ -46,19 +49,29 @@ export class ContentService {
       brandTone: 'professional',
       productsServices: '',
       businessUSP: '',
-      postingFrequency: '5 times/week',
       languages: 'English',
     };
 
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-    let generatedPlan: any[] = [];
+    const entries: any[] = [];
+    const daysMap: Record<string, number> = {
+      'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
+      'Friday': 4, 'Saturday': 5, 'Sunday': 6
+    };
 
-    // Generate using OpenRouter with full business context
-    try {
-      const result = await this.openRouter.chatJson<any[]>(
-        'You are an expert social media marketing strategist. Generate content calendars that drive engagement and conversions.',
-        `Generate a 5-day weekly content calendar (Monday to Friday) for this business:
+    // Calculate start date (next Monday)
+    const now = new Date();
+    const nextMonday = new Date(now);
+    const currentDay = now.getDay();
+    const daysToMonday = currentDay === 0 ? 1 : 8 - currentDay;
+    nextMonday.setDate(now.getDate() + daysToMonday);
+    nextMonday.setHours(10, 0, 0, 0);
 
+    const postTypes = ['Graphic', 'Reel', 'Carousel', 'Story', 'Video', 'Blog', 'Poll'];
+
+    for (let w = 0; w < durationWeeks; w++) {
+      this.logger.log(`Generating Week ${w + 1}/${durationWeeks} content calendar...`);
+      
+      const prompt = `Generate a content calendar for Week ${w + 1} of a ${durationWeeks}-week plan for:
 Business Name: ${businessContext.businessName}
 Industry: ${businessContext.industry}
 Target Audience: ${businessContext.targetAudience}
@@ -67,90 +80,82 @@ Products/Services: ${businessContext.productsServices}
 USP: ${businessContext.businessUSP}
 Language: ${businessContext.languages}
 
-For EACH day, provide ALL of these fields:
-- day: the day name (Monday, Tuesday, etc.)
-- caption: engaging social media caption (2-3 sentences)
-- headline: short attention-grabbing headline (under 10 words)
-- cta: call-to-action text (e.g., "Shop Now", "Learn More", "Sign Up Today")
-- hashtags: array of 5-7 relevant hashtags
-- postType: one of "Image Post", "Carousel", "Video", "Story", "Reel"
-- bestPostingTime: optimal posting time (e.g., "10:00 AM", "2:00 PM")
-- platform: "Facebook" or "Instagram" (alternate between them)
-- imagePrompt: detailed AI image generation prompt for the post visual
+Please generate exactly 1 post for each of these posting days: ${selectedDays.join(', ')}.
+To maintain posting consistency, avoid duplicate ideas, and balance promotional and educational content.
+Intelligently mix these content types: ${postTypes.join(', ')}.
 
-Return ONLY valid JSON array with exactly 5 objects.`,
-        0.8,
-        3000,
-      );
+For EACH day, return an object with:
+- dayName: the day name (e.g. "Monday")
+- postType: one of ${JSON.stringify(postTypes)}
+- contentIdea: creative engaging post idea
+- contentDescription: short description of what the post contains
+- caption: engaging caption
+- hashtags: array of 3-5 relevant hashtags
 
-      if (result && Array.isArray(result) && result.length === 5) {
-        generatedPlan = result;
-      }
-    } catch (err: any) {
-      this.logger.warn(`OpenRouter content generation failed: ${err.message}`);
-    }
+Return ONLY valid JSON array of objects (no markdown, no code fences):
+[
+  {
+    "dayName": "Monday",
+    "postType": "...",
+    "contentIdea": "...",
+    "contentDescription": "...",
+    "caption": "...",
+    "hashtags": ["#tag1", "#tag2"]
+  },
+  ...
+]`;
 
-    // Fallback if AI generation fails
-    if (generatedPlan.length === 0) {
-      generatedPlan = this.generateFallbackPlan(businessContext, days);
-    }
-
-    const entries: any[] = [];
-
-    for (let i = 0; i < 5; i++) {
-      const scheduledTime = this.getNextWeekday(i);
-      const post = generatedPlan[i];
-
-      // Parse posting time into scheduled datetime
-      const postingTimeStr = post.bestPostingTime || '10:00 AM';
-      const timeMatch = postingTimeStr.match(/(\d{1,2}):?(\d{2})?\s*(AM|PM)?/i);
-      if (timeMatch) {
-        let hours = parseInt(timeMatch[1]);
-        const minutes = parseInt(timeMatch[2] || '0');
-        const period = timeMatch[3]?.toUpperCase();
-        if (period === 'PM' && hours < 12) hours += 12;
-        if (period === 'AM' && hours === 12) hours = 0;
-        scheduledTime.setHours(hours, minutes, 0, 0);
+      let weekPlan: any[] = [];
+      try {
+        const result = await this.openRouter.chatJson<any[]>(
+          'You are an expert social media content generator. Return valid JSON array.',
+          prompt,
+          0.8,
+          2500,
+        );
+        if (result && Array.isArray(result)) {
+          weekPlan = result;
+        }
+      } catch (err: any) {
+        this.logger.error(`Failed to generate calendar week ${w + 1}: ${err.message}`);
       }
 
-      const calendarEntry = await this.firebase.createContentCalendarEntry({
-        businessId,
-        day: i + 1,
-        dayName: days[i],
-        platform: post.platform || (i % 2 === 0 ? 'Instagram' : 'Facebook'),
-        scheduledTime,
-        caption: post.caption || '',
-        headline: post.headline || '',
-        cta: post.cta || 'Learn More',
-        hashtags: post.hashtags || [],
-        postType: post.postType || 'Image Post',
-        bestPostingTime: post.bestPostingTime || '10:00 AM',
-        imagePrompt: post.imagePrompt || post.graphicPrompt || '',
-        status: 'SCHEDULED',
-      });
+      // Fallback if AI call fails
+      if (weekPlan.length === 0) {
+        weekPlan = selectedDays.map(day => ({
+          dayName: day,
+          postType: 'Graphic',
+          contentIdea: `Weekly highlight for ${businessContext.businessName}`,
+          contentDescription: `Showcase of products and services for ${businessContext.businessName}.`,
+          caption: `Discover the best of ${businessContext.businessName}! We offer premium quality and exceptional service.`,
+          hashtags: ['#Quality', '#Brand', '#Premium'],
+        }));
+      }
 
-      await this.firebase.createGeneratedContent({
-        calendarEntryId: calendarEntry.id,
-        businessId,
-        dayName: days[i],
-        platform: post.platform || (i % 2 === 0 ? 'Instagram' : 'Facebook'),
-        caption: post.caption || '',
-        headline: post.headline || '',
-        cta: post.cta || 'Learn More',
-        hashtags: post.hashtags || [],
-        postType: post.postType || 'Image Post',
-        bestPostingTime: post.bestPostingTime || '10:00 AM',
-        imagePrompt: post.imagePrompt || post.graphicPrompt || '',
-        scheduledTime,
-        status: 'SCHEDULED',
-      });
-
-      entries.push(calendarEntry);
+      for (const post of weekPlan) {
+        const offset = daysMap[post.dayName] || 0;
+        const scheduledTime = new Date(nextMonday);
+        scheduledTime.setDate(nextMonday.getDate() + (w * 7) + offset);
+        
+        const entry = await this.firebase.createContentCalendarEntry({
+          businessId,
+          dayName: post.dayName,
+          platform: 'Instagram',
+          scheduledTime,
+          contentIdea: post.contentIdea || '',
+          contentDescription: post.contentDescription || '',
+          caption: post.caption || '',
+          hashtags: post.hashtags || [],
+          postType: post.postType || 'Graphic',
+          status: 'PENDING',
+        });
+        entries.push(entry);
+      }
     }
 
     return {
       success: true,
-      message: `Weekly content calendar generated (${entries.length} posts)`,
+      message: `Content calendar generated (${entries.length} posts for ${durationWeeks} week(s))`,
       businessId,
       entries,
     };
@@ -174,9 +179,85 @@ Return ONLY valid JSON array with exactly 5 objects.`,
     return { success: true, entry: updated };
   }
 
-  async updateCalendarEntry(calendarEntryId: string, data: { caption?: string; scheduledTime?: Date; status?: string }) {
+  async createCalendarEntry(data: any) {
+    const entry = await this.firebase.createContentCalendarEntry({
+      ...data,
+      scheduledTime: data.scheduledTime ? new Date(data.scheduledTime) : new Date(),
+    });
+    return { success: true, entry };
+  }
+
+  async updateCalendarEntry(calendarEntryId: string, data: { caption?: string; scheduledTime?: Date; status?: string; contentIdea?: string; contentDescription?: string; postType?: string; hashtags?: string[] }) {
     const updated = await this.firebase.updateContentCalendarEntry(calendarEntryId, data);
     return { success: true, entry: updated };
+  }
+
+  async deleteCalendarEntry(calendarEntryId: string) {
+    await this.firebase.deleteContentCalendarEntry(calendarEntryId);
+    return { success: true };
+  }
+
+  async regenerateCalendarEntry(id: string) {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new Error('Calendar entry not found');
+
+    const profile = await this.firebase.getBusinessProfile(entry.businessId);
+    const businessContext = profile ? {
+      businessName: profile.businessName || 'the business',
+      industry: profile.industry || 'general',
+      targetAudience: profile.targetAudience || 'general audience',
+      brandTone: profile.brandTone || 'professional',
+    } : {
+      businessName: 'the business',
+      industry: 'general',
+      targetAudience: 'general audience',
+      brandTone: 'professional',
+    };
+
+    const postTypes = ['Graphic', 'Reel', 'Carousel', 'Story', 'Video', 'Blog', 'Poll'];
+    const prompt = `You are an expert social media copywriter. Regenerate a single social media post calendar entry for:
+Business Name: ${businessContext.businessName}
+Industry: ${businessContext.industry}
+Target Audience: ${businessContext.targetAudience}
+Brand Tone: ${businessContext.brandTone}
+
+Original Post Type: ${entry.postType || 'Graphic'}
+Original Idea (if any): ${entry.contentIdea || ''}
+
+Provide a completely new unique creative concept.
+Return ONLY valid JSON in this format (no markdown, no code fences):
+{
+  "postType": "...",
+  "contentIdea": "...",
+  "contentDescription": "...",
+  "caption": "...",
+  "hashtags": ["#tag1", "#tag2", "#tag3"]
+}`;
+
+    let result: any = null;
+    try {
+      result = await this.openRouter.chatJson<any>(
+        'You are an expert social media marketing writer. Return valid JSON.',
+        prompt,
+        0.8,
+        1500,
+      );
+    } catch (err: any) {
+      this.logger.error(`Regenerate single post failed: ${err.message}`);
+    }
+
+    if (result) {
+      const updated = await this.firebase.updateContentCalendarEntry(id, {
+        postType: result.postType || entry.postType,
+        contentIdea: result.contentIdea || entry.contentIdea,
+        contentDescription: result.contentDescription || entry.contentDescription,
+        caption: result.caption || entry.caption,
+        hashtags: result.hashtags || entry.hashtags || [],
+      });
+      return { success: true, entry: updated };
+    }
+
+    return { success: false, message: 'AI generation fallback executed' };
   }
 
   // ─── Private Helpers ──────────────────────────────────────────────────────────

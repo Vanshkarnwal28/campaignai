@@ -1,5 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar as CalendarIcon, Sparkles, RefreshCw, Clock, ChevronRight } from 'lucide-react';
+import { 
+  Calendar as CalendarIcon, 
+  Sparkles, 
+  Download, 
+  Edit, 
+  Copy, 
+  Trash2, 
+  Check, 
+  Plus, 
+  Printer, 
+  CornerDownLeft, 
+  X,
+  Search,
+  ChevronLeft,
+  ChevronRight
+} from 'lucide-react';
 import { api } from '../services/api';
 
 interface ContentCalendarProps {
@@ -8,22 +23,47 @@ interface ContentCalendarProps {
 }
 
 export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, onToast }) => {
-  const [loading, setLoading] = useState(false);
-  const [generating, setGenerating] = useState(false);
+  // const [loading, setLoading] = useState(false);
   const [calendarEntries, setCalendarEntries] = useState<any[]>([]);
-  const [selectedEntry, setSelectedEntry] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'calendar' | 'list'>('calendar');
+
+  // Filter & Month Navigation State
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [postTypeFilter, setPostTypeFilter] = useState<string>('ALL');
+  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 6, 1)); // July 2026
+
+  // Google Sheets Selection & Editing State
+  const [selectedCell, setSelectedCell] = useState<{ rowId: string; colName: string } | null>(null);
+  const [formulaValue, setFormulaValue] = useState<string>('');
+
+  // Modals State
+  const [editingEntry, setEditingEntry] = useState<any | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  
+  // Custom new entry form state
+  const [newEntryForm, setNewEntryForm] = useState({
+    dayName: 'Monday',
+    postType: 'Graphic',
+    contentIdea: '',
+    contentDescription: '',
+    caption: '',
+    hashtagsStr: '',
+    status: 'PENDING',
+    scheduledDate: '2026-07-27',
+    scheduledTime: '10:00'
+  });
 
   const fetchCalendar = async () => {
     if (!businessId) return;
-    setLoading(true);
+    
     try {
       const data = await api.content.getCalendar(businessId);
       setCalendarEntries(data.entries || []);
     } catch (err: any) {
       onToast('Error', err.message || 'Failed to load content calendar', 'alert');
     } finally {
-      setLoading(false);
+      
     }
   };
 
@@ -31,323 +71,1006 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     fetchCalendar();
   }, [businessId]);
 
-  const handleGeneratePlan = async () => {
-    setGenerating(true);
+  // Date Formatting: DD/MM/YYYY
+  const formatSpreadsheetDate = (dateInput: any) => {
+    if (!dateInput) return '';
+    let date: Date;
+    if (dateInput.toDate && typeof dateInput.toDate === 'function') {
+      date = dateInput.toDate();
+    } else if (dateInput._seconds) {
+      date = new Date(dateInput._seconds * 1000);
+    } else {
+      date = new Date(dateInput);
+    }
+    if (isNaN(date.getTime())) return '';
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  // Get field names of selected cell
+  const getFieldFromCol = (colName: string) => {
+    switch (colName) {
+      case 'A': return 'scheduledTime';
+      case 'B': return 'postType';
+      case 'C': return 'contentIdea';
+      case 'D': return 'contentDescription';
+      case 'E': return 'caption';
+      case 'F': return 'status';
+      default: return '';
+    }
+  };
+
+  // Handle cell click selection
+  const handleCellClick = (entry: any, colName: string) => {
+    setSelectedCell({ rowId: entry.id, colName });
+    const field = getFieldFromCol(colName);
+    if (!field) {
+      setFormulaValue('');
+      return;
+    }
+
+    if (field === 'scheduledTime') {
+      setFormulaValue(formatSpreadsheetDate(entry[field]));
+    } else if (field === 'status') {
+      setFormulaValue((entry[field] || 'pending').toLowerCase());
+    } else {
+      setFormulaValue(entry[field] || '');
+    }
+  };
+
+  // Save cell edit from formula bar
+  const handleSaveCellEdit = async () => {
+    if (!selectedCell) return;
+    const { rowId, colName } = selectedCell;
+    const field = getFieldFromCol(colName);
+    if (!field) return;
+
+    
     try {
-      const res = await api.content.generatePlan(businessId);
-      onToast('Success', res.message || 'Weekly content calendar generated!', 'success');
+      let valueToSave: any = formulaValue;
+      if (field === 'status') {
+        valueToSave = formulaValue.toUpperCase();
+      } else if (field === 'scheduledTime') {
+        const parts = formulaValue.split('/');
+        if (parts.length === 3) {
+          const d = parseInt(parts[0]);
+          const m = parseInt(parts[1]) - 1;
+          const y = parseInt(parts[2]);
+          const parsedDate = new Date(y, m, d, 10, 0);
+          if (!isNaN(parsedDate.getTime())) {
+            valueToSave = parsedDate.toISOString();
+          }
+        }
+      }
+
+      await api.content.updateEntry(rowId, { [field]: valueToSave });
+      onToast('Cell Updated', 'Spreadsheet cell updated successfully.', 'success');
       await fetchCalendar();
     } catch (err: any) {
-      onToast('Generation Failed', err.message || 'Could not generate content plan', 'alert');
+      onToast('Update Failed', err.message || 'Could not save cell edit', 'alert');
     } finally {
-      setGenerating(false);
+      
+    }
+  };
+
+  // Month navigation
+  const handlePrevMonth = () => {
+    setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+
+
+  // Row Action Handlers
+  const handleDeleteRow = async (id: string) => {
+    if (!window.confirm('Delete this row from the spreadsheet?')) return;
+    
+    try {
+      await api.content.deleteEntry(id);
+      onToast('Row Deleted', 'Removed calendar entry.', 'success');
+      if (selectedCell?.rowId === id) setSelectedCell(null);
+      await fetchCalendar();
+    } catch (err: any) {
+      onToast('Delete Failed', err.message, 'alert');
+    } finally {
+      
+    }
+  };
+
+  const handleMarkAsPosted = async (id: string) => {
+    
+    try {
+      await api.content.updateEntry(id, { status: 'POSTED' });
+      onToast('Status Updated', 'Marked as posted.', 'success');
+      await fetchCalendar();
+    } catch (err: any) {
+      onToast('Error', err.message, 'alert');
+    } finally {
+      
     }
   };
 
   const handleSchedulePost = async (entry: any) => {
+    
     try {
       await api.scheduler.schedule({
         businessId,
         calendarEntryId: entry.id,
         caption: entry.caption,
-        headline: entry.headline,
-        hashtags: entry.hashtags,
-        imageUrl: entry.imageUrl,
+        headline: entry.contentIdea || entry.headline,
+        hashtags: entry.hashtags || [],
+        imageUrl: entry.imageUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800',
         platform: entry.platform || 'Instagram',
         scheduledTime: entry.scheduledTime ? new Date(entry.scheduledTime).toISOString() : new Date().toISOString(),
         postType: entry.postType,
       });
-      onToast('Scheduled', `Post scheduled for ${entry.platform}`, 'success');
-      fetchCalendar();
+
+      await api.content.updateEntry(entry.id, { status: 'SCHEDULED' });
+      onToast('Scheduled', `Post added to scheduler queue!`, 'success');
+      await fetchCalendar();
     } catch (err: any) {
-      onToast('Error', err.message || 'Failed to schedule post', 'alert');
+      onToast('Scheduling Failed', err.message, 'alert');
+    } finally {
+      
     }
   };
 
-  const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const handleRegenerateRow = async (id: string) => {
+    
+    onToast('Regenerating...', 'AI writer generating creative options...', 'info');
+    try {
+      const res = await api.content.regenerateEntry(id);
+      if (res.success) {
+        onToast('Regeneration Complete', 'New content written and updated.', 'success');
+        await fetchCalendar();
+      } else {
+        onToast('Regeneration Failed', res.message, 'alert');
+      }
+    } catch (err: any) {
+      onToast('Error', err.message, 'alert');
+    } finally {
+      
+    }
+  };
+
+  const handleDuplicateRow = async (entry: any) => {
+    
+    try {
+      const entryDate = entry.scheduledTime ? new Date(entry.scheduledTime) : new Date();
+      entryDate.setDate(entryDate.getDate() + 1);
+
+      const duplicatedData = {
+        businessId,
+        dayName: entry.dayName || 'Monday',
+        platform: entry.platform || 'Instagram',
+        scheduledTime: entryDate.toISOString(),
+        contentIdea: `${entry.contentIdea || ''} (Copy)`,
+        contentDescription: entry.contentDescription || '',
+        caption: entry.caption || '',
+        hashtags: entry.hashtags || [],
+        postType: entry.postType || 'Graphic',
+        status: 'PENDING',
+      };
+
+      await api.content.createEntry(duplicatedData);
+      onToast('Row Cloned', 'Calendar entry duplicated successfully.', 'success');
+      await fetchCalendar();
+    } catch (err: any) {
+      onToast('Failed to Duplicate', err.message, 'alert');
+    } finally {
+      
+    }
+  };
+
+  const handleUpdateEntrySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEntry) return;
+
+    
+    try {
+      const hashtags = typeof editingEntry.hashtags === 'string'
+        ? (editingEntry.hashtags as string).split(',').map((h: string) => h.trim()).filter((h: string) => h.length > 0)
+        : editingEntry.hashtags;
+
+      const updatedPayload = {
+        postType: editingEntry.postType,
+        contentIdea: editingEntry.contentIdea,
+        contentDescription: editingEntry.contentDescription,
+        caption: editingEntry.caption,
+        status: editingEntry.status,
+        hashtags: hashtags || [],
+      };
+
+      await api.content.updateEntry(editingEntry.id, updatedPayload);
+      onToast('Saved', 'Content row updated successfully.', 'success');
+      setIsEditModalOpen(false);
+      setEditingEntry(null);
+      await fetchCalendar();
+    } catch (err: any) {
+      onToast('Update Failed', err.message, 'alert');
+    } finally {
+      
+    }
+  };
+
+  const handleAddCustomEntry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    try {
+      const hashtags = newEntryForm.hashtagsStr
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+
+      const [year, month, dateDay] = newEntryForm.scheduledDate.split('-').map(Number);
+      const [hours, minutes] = newEntryForm.scheduledTime.split(':').map(Number);
+      const scheduledTime = new Date(year, month - 1, dateDay, hours, minutes);
+
+      const payload = {
+        businessId,
+        dayName: newEntryForm.dayName,
+        platform: 'Instagram',
+        scheduledTime: scheduledTime.toISOString(),
+        contentIdea: newEntryForm.contentIdea,
+        contentDescription: newEntryForm.contentDescription,
+        caption: newEntryForm.caption,
+        hashtags,
+        postType: newEntryForm.postType,
+        status: newEntryForm.status,
+      };
+
+      await api.content.createEntry(payload);
+      onToast('Entry Created', 'Custom row added to calendar.', 'success');
+      setIsAddModalOpen(false);
+      setNewEntryForm({
+        dayName: 'Monday',
+        postType: 'Graphic',
+        contentIdea: '',
+        contentDescription: '',
+        caption: '',
+        hashtagsStr: '',
+        status: 'PENDING',
+        scheduledDate: '2026-07-27',
+        scheduledTime: '10:00'
+      });
+      await fetchCalendar();
+    } catch (err: any) {
+      onToast('Error', err.message, 'alert');
+    } finally {
+      
+    }
+  };
+
+  // Exporters
+  const handleExportCSV = () => {
+    const headers = ['Date', 'Post Type', 'Content Idea', 'Content Description', 'Caption with hashtag', 'Status'];
+    const rows = filteredEntries.map(entry => [
+      entry.scheduledTime ? formatSpreadsheetDate(entry.scheduledTime) : '',
+      entry.postType || 'Graphic',
+      entry.contentIdea || '',
+      entry.contentDescription || '',
+      entry.caption || '',
+      (entry.status || 'PENDING').toLowerCase()
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
+      + [headers.join(','), ...rows.map(e => e.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `content_calendar_${businessId}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportExcel = () => {
+    const headers = ['Date', 'Post Type', 'Content Idea', 'Content Description', 'Caption with hashtag', 'Status'];
+    const rows = filteredEntries.map(entry => [
+      entry.scheduledTime ? formatSpreadsheetDate(entry.scheduledTime) : '',
+      entry.postType || 'Graphic',
+      entry.contentIdea || '',
+      entry.contentDescription || '',
+      entry.caption || '',
+      (entry.status || 'PENDING').toLowerCase()
+    ]);
+    const tabContent = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
+    const blob = new Blob([tabContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `content_calendar_${businessId}.xls`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportPDF = () => {
+    window.print();
+  };
+
+  // Filtering matching target month
+  const filteredEntries = calendarEntries.filter((entry) => {
+    const idea = (entry.contentIdea || '').toLowerCase();
+    const desc = (entry.contentDescription || '').toLowerCase();
+    const cap = (entry.caption || '').toLowerCase();
+    const type = (entry.postType || '').toLowerCase();
+    const query = searchTerm.toLowerCase();
+    const matchesSearch = !searchTerm || idea.includes(query) || desc.includes(query) || cap.includes(query) || type.includes(query);
+
+    const matchesStatus = statusFilter === 'ALL' || (entry.status || 'PENDING').toUpperCase() === statusFilter.toUpperCase();
+    const matchesPostType = postTypeFilter === 'ALL' || (entry.postType || '').toLowerCase() === postTypeFilter.toLowerCase();
+
+    let entryDate: Date | null = null;
+    if (entry.scheduledTime) {
+      if (entry.scheduledTime.toDate && typeof entry.scheduledTime.toDate === 'function') {
+        entryDate = entry.scheduledTime.toDate();
+      } else if (entry.scheduledTime._seconds) {
+        entryDate = new Date(entry.scheduledTime._seconds * 1000);
+      } else {
+        entryDate = new Date(entry.scheduledTime);
+      }
+    }
+    const matchesMonth = entryDate 
+      ? entryDate.getMonth() === currentDate.getMonth() && entryDate.getFullYear() === currentDate.getFullYear()
+      : false;
+
+    return matchesSearch && matchesStatus && matchesPostType && matchesMonth;
+  });
+
+  const monthYearString = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+  const dataRowsCount = filteredEntries.length;
+  const paddingRowsNeeded = Math.max(12 - dataRowsCount, 0);
+  const paddingRowsArray = Array.from({ length: paddingRowsNeeded });
+
+  // Explicit CSS rules for spreadsheet appearance
+  const tableContainerStyle: React.CSSProperties = {
+    background: '#ffffff',
+    border: '1px solid #cbd5e1',
+    borderRadius: '12px',
+    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05)',
+    overflow: 'hidden',
+    marginTop: '20px'
+  };
+
+  const scrollContainerStyle: React.CSSProperties = {
+    overflowX: 'auto',
+    overflowY: 'auto',
+    maxHeight: '620px'
+  };
+
+  const tableStyle: React.CSSProperties = {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontFamily: 'Arial, sans-serif',
+    fontSize: '13px',
+    color: '#1e293b',
+    tableLayout: 'fixed',
+    minWidth: '1200px'
+  };
+
+  const thStyle: React.CSSProperties = {
+    background: '#f1f5f9',
+    color: '#475569',
+    borderRight: '1px solid #cbd5e1',
+    borderBottom: '1px solid #cbd5e1',
+    padding: '8px 12px',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    fontSize: '11px',
+    userSelect: 'none'
+  };
+
+  const rowHeaderStyle: React.CSSProperties = {
+    background: '#f1f5f9',
+    color: '#475569',
+    borderRight: '1px solid #cbd5e1',
+    borderBottom: '1px solid #cbd5e1',
+    padding: '8px 4px',
+    textAlign: 'center',
+    width: '45px',
+    fontWeight: 'bold',
+    userSelect: 'none'
+  };
+
+  const cellStyle = (isSelected: boolean, alignment: 'left' | 'right' | 'center', vertical: 'top' | 'bottom'): React.CSSProperties => ({
+    borderRight: '1px solid #e2e8f0',
+    borderBottom: '1px solid #cbd5e1',
+    padding: '10px 12px',
+    textAlign: alignment,
+    verticalAlign: vertical,
+    cursor: 'cell',
+    position: 'relative',
+    background: isSelected ? 'rgba(99, 102, 241, 0.05)' : '#ffffff',
+    outline: isSelected ? '2px solid #4f46e5' : 'none',
+    outlineOffset: '-2px',
+    wordBreak: 'break-word'
+  });
 
   return (
-    <div className="space-y-6">
-      {/* Top Header & Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div>
-          <div className="flex items-center gap-2">
-            <CalendarIcon className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">AI Content Calendar</h2>
+    <div style={{ padding: '24px', background: '#f8fafc', minHeight: '100vh', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      
+      {/* Top Banner Control Bar */}
+      <div className="no-print" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', border: '1px solid #e2e8f0', padding: '20px', borderRadius: '16px', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ padding: '10px', background: '#e0e7ff', borderRadius: '12px' }}>
+            <CalendarIcon className="w-6 h-6 text-indigo-600" />
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Weekly Mon–Fri social plan with AI copy, headlines, CTAs, hashtags, & optimal times.
-          </p>
+          <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Content Calendar Spreadsheet</h2>
+            <p style={{ fontSize: '0.75rem', color: '#64748b', margin: '4px 0 0 0' }}>
+              Interactive sheet editor. Click cells to modify copies, manage posting plans, or export spreadsheets.
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-            <button
-              onClick={() => setActiveTab('calendar')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                activeTab === 'calendar'
-                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              Grid View
-            </button>
-            <button
-              onClick={() => setActiveTab('list')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                activeTab === 'list'
-                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
-            >
-              List View
-            </button>
-          </div>
-
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
-            onClick={handleGeneratePlan}
-            disabled={generating}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl font-semibold text-sm transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50"
+            onClick={() => setIsAddModalOpen(true)}
+            className="btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 16px', borderRadius: '10px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
           >
-            {generating ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : (
-              <Sparkles className="w-4 h-4" />
-            )}
-            {generating ? 'Generating Weekly Plan...' : 'Generate Weekly Calendar'}
+            <Plus className="w-4 h-4" /> Add Row
+          </button>
+          <button
+            onClick={handleExportCSV}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', borderRadius: '10px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+          >
+            <Download className="w-3.5 h-3.5" /> CSV
+          </button>
+          <button
+            onClick={handleExportExcel}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', borderRadius: '10px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+          >
+            <Download className="w-3.5 h-3.5" /> Excel
+          </button>
+          <button
+            onClick={handleExportPDF}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', borderRadius: '10px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+          >
+            <Printer className="w-3.5 h-3.5" /> Print / PDF
           </button>
         </div>
       </div>
 
-      {/* Main Grid View */}
-      {loading ? (
-        <div className="flex items-center justify-center p-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
-          <span className="ml-2 text-sm text-slate-500">Loading content calendar...</span>
+      {/* Filter Options */}
+      <div className="no-print" style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', border: '1px solid #e2e8f0', padding: '12px 16px', borderRadius: '16px', boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)', gap: '16px' }}>
+        
+        {/* Search */}
+        <div style={{ position: 'relative', width: '280px' }}>
+          <Search className="w-4 h-4 text-slate-400" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            type="text"
+            style={{ width: '100%', padding: '8px 12px 8px 34px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '0.8rem', color: '#1e293b', outline: 'none' }}
+            placeholder="Search matching words..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
-      ) : calendarEntries.length === 0 ? (
-        <div className="text-center py-16 px-4 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800">
-          <CalendarIcon className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-          <h3 className="text-lg font-bold text-slate-800 dark:text-white">No Content Plan Yet</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 mb-6">
-            Click 'Generate Weekly Calendar' above to create a custom 5-day social media plan tailored to your business.
-          </p>
-          <button
-            onClick={handleGeneratePlan}
-            disabled={generating}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold text-sm hover:bg-indigo-700"
-          >
-            <Sparkles className="w-4 h-4" /> Generate 5-Day Plan
-          </button>
-        </div>
-      ) : activeTab === 'calendar' ? (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          {daysOfWeek.map((dayName, idx) => {
-            const entry = calendarEntries.find(
-              (e) => (e.dayName || '').toLowerCase() === dayName.toLowerCase() || e.day === idx + 1
-            );
 
-            return (
-              <div
-                key={dayName}
-                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 flex flex-col justify-between hover:border-indigo-300 dark:hover:border-indigo-700 transition-all shadow-sm group"
-              >
-                <div>
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 mb-3">
-                    <span className="font-bold text-slate-900 dark:text-white text-sm">{dayName}</span>
-                    <span
-                      className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
-                        entry?.platform === 'Facebook'
-                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                          : 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300'
-                      }`}
-                    >
-                      {entry?.platform || 'Social'}
-                    </span>
-                  </div>
-
-                  {entry ? (
-                    <div className="space-y-3">
-                      <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 line-clamp-1">
-                        {entry.headline || 'Social Post'}
-                      </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-3 leading-relaxed">
-                        {entry.caption}
-                      </p>
-
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-                        <Clock className="w-3 h-3 text-slate-400" />
-                        <span>{entry.bestPostingTime || '10:00 AM'}</span>
-                      </div>
-
-                      <div className="flex flex-wrap gap-1">
-                        {(entry.hashtags || []).slice(0, 3).map((tag: string, i: number) => (
-                          <span key={i} className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded">
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="py-8 text-center text-xs text-slate-400">No post scheduled</div>
-                  )}
-                </div>
-
-                {entry && (
-                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <span
-                      className={`text-[10px] font-semibold px-2 py-0.5 rounded ${
-                        entry.status === 'PUBLISHED'
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                          : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                      }`}
-                    >
-                      {entry.status || 'SCHEDULED'}
-                    </span>
-
-                    <button
-                      onClick={() => setSelectedEntry(entry)}
-                      className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 flex items-center gap-0.5"
-                    >
-                      Details <ChevronRight className="w-3 h-3" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        /* List View */
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-          <div className="divide-y divide-slate-100 dark:divide-slate-800">
-            {calendarEntries.map((entry) => (
-              <div key={entry.id} className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                <div className="space-y-1 max-w-2xl">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900 dark:text-white text-sm">{entry.dayName}</span>
-                    <span className="text-xs text-slate-400">•</span>
-                    <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">{entry.platform}</span>
-                    <span className="text-xs text-slate-400">•</span>
-                    <span className="text-xs text-slate-500 dark:text-slate-400">{entry.postType}</span>
-                  </div>
-                  <h4 className="font-semibold text-slate-800 dark:text-slate-200 text-sm">{entry.headline}</h4>
-                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">{entry.caption}</p>
-                  <div className="flex items-center gap-2 text-[11px] text-slate-500 pt-1">
-                    <span className="font-semibold text-indigo-500">CTA: {entry.cta}</span>
-                    <span>•</span>
-                    <Clock className="w-3 h-3 text-slate-400" />
-                    <span>Best Time: {entry.bestPostingTime}</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`text-xs font-semibold px-3 py-1 rounded-full ${
-                      entry.status === 'PUBLISHED'
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                        : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                    }`}
-                  >
-                    {entry.status}
-                  </span>
-                  <button
-                    onClick={() => handleSchedulePost(entry)}
-                    className="px-3 py-1.5 text-xs font-semibold bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 transition-colors"
-                  >
-                    Schedule Now
-                  </button>
-                  <button
-                    onClick={() => setSelectedEntry(entry)}
-                    className="px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                  >
-                    View
-                  </button>
-                </div>
-              </div>
-            ))}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '10px' }}>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '6px 12px', borderRadius: '10px' }}>
+            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold' }}>STATUS:</span>
+            <select
+              style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: '0.8rem', color: '#334155', fontWeight: 600, cursor: 'pointer' }}
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="ALL">All</option>
+              <option value="PENDING">Pending</option>
+              <option value="SCHEDULED">Scheduled</option>
+              <option value="POSTED">Posted</option>
+            </select>
           </div>
-        </div>
-      )}
 
-      {/* Entry Modal */}
-      {selectedEntry && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-lg w-full p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div>
-                <h3 className="font-bold text-slate-900 dark:text-white">{selectedEntry.dayName} Post Details</h3>
-                <p className="text-xs text-slate-500">{selectedEntry.platform} • {selectedEntry.postType}</p>
-              </div>
-              <button
-                onClick={() => setSelectedEntry(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '6px 12px', borderRadius: '10px' }}>
+            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold' }}>FORMAT:</span>
+            <select
+              style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: '0.8rem', color: '#334155', fontWeight: 600, cursor: 'pointer' }}
+              value={postTypeFilter}
+              onChange={(e) => setPostTypeFilter(e.target.value)}
+            >
+              <option value="ALL">All</option>
+              <option value="Graphic">Graphic</option>
+              <option value="Reel">Reel</option>
+              <option value="Carousel">Carousel</option>
+              <option value="Story">Story</option>
+              <option value="Video">Video</option>
+              <option value="Blog">Blog</option>
+              <option value="Poll">Poll</option>
+            </select>
+          </div>
+
+          {/* Month Navigator */}
+          <div style={{ display: 'flex', alignItems: 'center', border: '1px solid #cbd5e1', background: '#f8fafc', borderRadius: '10px', overflow: 'hidden' }}>
+            <button onClick={handlePrevMonth} style={{ padding: '6px 10px', border: 'none', background: 'transparent', borderRight: '1px solid #cbd5e1', cursor: 'pointer', color: '#475569' }}>
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span style={{ padding: '0 16px', fontSize: '0.8rem', fontWeight: 'bold', color: '#1e293b', minWidth: '110px', textAlign: 'center' }}>
+              {monthYearString}
+            </span>
+            <button onClick={handleNextMonth} style={{ padding: '6px 10px', border: 'none', background: 'transparent', borderLeft: '1px solid #cbd5e1', cursor: 'pointer', color: '#475569' }}>
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Formula Bar */}
+      <div className="no-print" style={{ display: 'flex', alignItems: 'center', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '10px', overflow: 'hidden', fontSize: '0.8rem' }}>
+        <div style={{ background: '#f1f5f9', padding: '8px 16px', borderRight: '1px solid #cbd5e1', color: '#64748b', fontWeight: 'bold', fontStyle: 'italic', userSelect: 'none', minWidth: '52px', textAlign: 'center' }}>
+          fx
+        </div>
+        <input
+          type="text"
+          style={{ flex: 1, padding: '8px 16px', background: '#ffffff', color: '#1e293b', border: 'none', outline: 'none' }}
+          placeholder={selectedCell ? "Type here to edit the selected cell and press Enter..." : "Select any cell below to view or edit its contents..."}
+          value={formulaValue}
+          onChange={(e) => setFormulaValue(e.target.value)}
+          disabled={!selectedCell}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSaveCellEdit();
+          }}
+        />
+        {selectedCell && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', paddingRight: '8px', borderLeft: '1px solid #e2e8f0' }}>
+            <button
+              onClick={handleSaveCellEdit}
+              title="Apply edits (Enter)"
+              style={{ padding: '6px', border: 'none', background: 'transparent', color: '#4f46e5', cursor: 'pointer', borderRadius: '6px' }}
+            >
+              <CornerDownLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                setSelectedCell(null);
+                setFormulaValue('');
+              }}
+              title="Cancel"
+              style={{ padding: '6px', border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', borderRadius: '6px' }}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Spreadsheet Grid Table */}
+      <div style={tableContainerStyle}>
+        <div style={scrollContainerStyle}>
+          <table style={tableStyle}>
+            
+            {/* Columns (A - I) */}
+            <thead>
+              <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
+                <th style={{ ...thStyle, width: '45px', background: '#e2e8f0', borderRight: '1px solid #cbd5e1' }}></th>
+                <th style={{ ...thStyle, width: '130px' }}>A</th>
+                <th style={{ ...thStyle, width: '110px' }}>B</th>
+                <th style={{ ...thStyle, width: '200px' }}>C</th>
+                <th style={{ ...thStyle, width: '220px' }}>D</th>
+                <th style={{ ...thStyle, width: '380px' }}>E</th>
+                <th style={{ ...thStyle, width: '100px' }}>F</th>
+                <th style={{ ...thStyle, width: '180px' }} className="no-print">G</th>
+                <th style={{ ...thStyle, width: '80px' }}>H</th>
+                <th style={{ ...thStyle, width: '80px', borderRight: 'none' }}>I</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              
+              {/* Row 1: Header values (Date, Post Type, Content Idea, Content Description, Caption with hashtag, Status, Actions) */}
+              <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
+                <td style={rowHeaderStyle}>1</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Date</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Post Type</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Content Idea</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Content Description</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Caption with hashtag</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Status</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'center' }} className="no-print">Actions</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1' }}></td>
+                <td style={{ borderBottom: '1px solid #cbd5e1' }}></td>
+              </tr>
+
+              {/* Real Data Rows */}
+              {filteredEntries.map((entry, idx) => {
+                const rowNum = idx + 2;
+                const formattedDate = entry.scheduledTime ? formatSpreadsheetDate(entry.scheduledTime) : '';
+                const lowercaseStatus = (entry.status || 'pending').toLowerCase();
+
+                return (
+                  <tr key={entry.id} style={{ borderBottom: '1px solid #cbd5e1' }}>
+                    
+                    {/* Row Index */}
+                    <td style={rowHeaderStyle}>{rowNum}</td>
+
+                    {/* Date (Column A) - Aligned bottom right */}
+                    <td 
+                      onClick={() => handleCellClick(entry, 'A')}
+                      style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'A', 'right', 'bottom')}
+                    >
+                      {formattedDate}
+                    </td>
+
+                    {/* Post Type (Column B) - Aligned bottom left */}
+                    <td 
+                      onClick={() => handleCellClick(entry, 'B')}
+                      style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'B', 'left', 'bottom')}
+                    >
+                      {entry.postType || 'Graphic'}
+                    </td>
+
+                    {/* Content Idea (Column C) - Aligned bottom left */}
+                    <td 
+                      onClick={() => handleCellClick(entry, 'C')}
+                      style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'C', 'left', 'bottom')}
+                    >
+                      {entry.contentIdea || ''}
+                    </td>
+
+                    {/* Content Description (Column D) - Aligned bottom left */}
+                    <td 
+                      onClick={() => handleCellClick(entry, 'D')}
+                      style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'D', 'left', 'bottom')}
+                    >
+                      {entry.contentDescription || ''}
+                    </td>
+
+                    {/* Caption with hashtag (Column E) - Aligned top left, pre-wrap */}
+                    <td 
+                      onClick={() => handleCellClick(entry, 'E')}
+                      style={{
+                        ...cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'E', 'left', 'top'),
+                        whiteSpace: 'pre-wrap'
+                      }}
+                    >
+                      {entry.caption || ''}
+                    </td>
+
+                    {/* Status (Column F) - Aligned bottom left */}
+                    <td 
+                      onClick={() => handleCellClick(entry, 'F')}
+                      style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'F', 'left', 'bottom')}
+                    >
+                      {lowercaseStatus}
+                    </td>
+
+                    {/* Actions Column (Column G) */}
+                    <td 
+                      style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'center', verticalAlign: 'middle' }}
+                      className="no-print"
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                        <button
+                          onClick={() => {
+                            setEditingEntry({ ...entry, hashtags: (entry.hashtags || []).join(', ') });
+                            setIsEditModalOpen(true);
+                          }}
+                          title="Modify content fields"
+                          style={{ padding: '4px', border: '1px solid #cbd5e1', background: '#ffffff', borderRadius: '4px', cursor: 'pointer', color: '#475569' }}
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDuplicateRow(entry)}
+                          title="Duplicate row"
+                          style={{ padding: '4px', border: '1px solid #cbd5e1', background: '#ffffff', borderRadius: '4px', cursor: 'pointer', color: '#475569' }}
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleRegenerateRow(entry.id)}
+                          title="AI rewrite variant"
+                          style={{ padding: '4px', border: '1px solid #e0e7ff', background: '#f5f3ff', borderRadius: '4px', cursor: 'pointer', color: '#4f46e5' }}
+                        >
+                          <Sparkles className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRow(entry.id)}
+                          title="Delete entry"
+                          style={{ padding: '4px', border: '1px solid #fee2e2', background: '#fef2f2', borderRadius: '4px', cursor: 'pointer', color: '#ef4444' }}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        {entry.status !== 'POSTED' && (
+                          <button
+                            onClick={() => handleMarkAsPosted(entry.id)}
+                            title="Mark as Posted"
+                            style={{ padding: '4px', border: '1px solid #d1fae5', background: '#ecfdf5', borderRadius: '4px', cursor: 'pointer', color: '#059669' }}
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {entry.status !== 'SCHEDULED' && (
+                          <button
+                            onClick={() => handleSchedulePost(entry)}
+                            style={{ padding: '4px 8px', border: 'none', background: '#4f46e5', color: '#ffffff', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                          >
+                            Schedule
+                          </button>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* Padding Empty Columns */}
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1' }}></td>
+                    <td style={{ borderBottom: '1px solid #cbd5e1' }}></td>
+
+                  </tr>
+                );
+              })}
+
+              {/* Spreadsheet Empty Rows padding */}
+              {paddingRowsArray.map((_, idx) => {
+                const rowNum = dataRowsCount + idx + 2;
+                return (
+                  <tr key={idx} style={{ borderBottom: '1px solid #cbd5e1' }}>
+                    <td style={rowHeaderStyle}>{rowNum}</td>
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }} className="no-print"></td>
+                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                    <td style={{ borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                  </tr>
+                );
+              })}
+
+            </tbody>
+
+          </table>
+        </div>
+      </div>
+
+      {/* EDIT MODAL */}
+      {isEditModalOpen && editingEntry && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '16px', maxWidth: '500px', width: '100%', padding: '24px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Modify Spreadsheet Row</h3>
+              <button 
+                onClick={() => { setIsEditModalOpen(false); setEditingEntry(null); }}
+                style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8' }}
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
+            <form onSubmit={handleUpdateEntrySubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.8rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Post Type</label>
+                  <select
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#f8fafc', outline: 'none' }}
+                    value={editingEntry.postType}
+                    onChange={(e) => setEditingEntry({ ...editingEntry, postType: e.target.value })}
+                  >
+                    <option value="Graphic">Graphic</option>
+                    <option value="Reel">Reel</option>
+                    <option value="Carousel">Carousel</option>
+                    <option value="Story">Story</option>
+                    <option value="Video">Video</option>
+                    <option value="Blog">Blog</option>
+                    <option value="Poll">Poll</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Status</label>
+                  <select
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#f8fafc', outline: 'none' }}
+                    value={editingEntry.status}
+                    onChange={(e) => setEditingEntry({ ...editingEntry, status: e.target.value })}
+                  >
+                    <option value="PENDING">Pending</option>
+                    <option value="SCHEDULED">Scheduled</option>
+                    <option value="POSTED">Posted</option>
+                  </select>
+                </div>
+              </div>
+
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300">Headline</label>
-                <p className="text-slate-900 dark:text-white font-medium text-sm mt-0.5">{selectedEntry.headline}</p>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Content Idea</label>
+                <input
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none' }}
+                  value={editingEntry.contentIdea}
+                  onChange={(e) => setEditingEntry({ ...editingEntry, contentIdea: e.target.value })}
+                />
               </div>
+
               <div>
-                <label className="font-semibold text-slate-700 dark:text-slate-300">Caption</label>
-                <p className="text-slate-600 dark:text-slate-300 whitespace-pre-wrap mt-0.5 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800">{selectedEntry.caption}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-slate-700 dark:text-slate-300">Call to Action (CTA)</label>
-                  <p className="text-indigo-600 dark:text-indigo-400 font-bold mt-0.5">{selectedEntry.cta}</p>
-                </div>
-                <div>
-                  <label className="font-semibold text-slate-700 dark:text-slate-300">Best Posting Time</label>
-                  <p className="text-slate-800 dark:text-slate-200 mt-0.5">{selectedEntry.bestPostingTime}</p>
-                </div>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Short Description</label>
+                <input
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none' }}
+                  value={editingEntry.contentDescription}
+                  onChange={(e) => setEditingEntry({ ...editingEntry, contentDescription: e.target.value })}
+                />
               </div>
 
-              {selectedEntry.hashtags?.length > 0 && (
-                <div>
-                  <label className="font-semibold text-slate-700 dark:text-slate-300">Hashtags</label>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {selectedEntry.hashtags.map((h: string, i: number) => (
-                      <span key={i} className="bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded text-[11px]">
-                        {h}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Caption</label>
+                <textarea
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none', resize: 'vertical' }}
+                  rows={4}
+                  value={editingEntry.caption}
+                  onChange={(e) => setEditingEntry({ ...editingEntry, caption: e.target.value })}
+                />
+              </div>
 
-              {selectedEntry.imagePrompt && (
-                <div>
-                  <label className="font-semibold text-slate-700 dark:text-slate-300">AI Image Prompt</label>
-                  <p className="text-slate-500 italic mt-0.5 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800">{selectedEntry.imagePrompt}</p>
-                </div>
-              )}
-            </div>
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Hashtags (comma separated)</label>
+                <input
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none' }}
+                  placeholder="e.g. discount, summer, branding"
+                  value={editingEntry.hashtags}
+                  onChange={(e) => setEditingEntry({ ...editingEntry, hashtags: e.target.value })}
+                />
+              </div>
 
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
-              <button
-                onClick={() => setSelectedEntry(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 rounded-xl"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  handleSchedulePost(selectedEntry);
-                  setSelectedEntry(null);
-                }}
-                className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl"
-              >
-                Schedule This Post
-              </button>
-            </div>
+              <div style={{ display: 'flex', justifyContent: 'end', gap: '8px', marginTop: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => { setIsEditModalOpen(false); setEditingEntry(null); }}
+                  style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: '8px', color: '#475569', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '8px 20px', background: '#4f46e5', border: 'none', borderRadius: '8px', color: '#ffffff', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+
           </div>
         </div>
       )}
+
+      {/* ADD CUSTOM ROW MODAL */}
+      {isAddModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99, background: 'rgba(15, 23, 42, 0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '16px', maxWidth: '500px', width: '100%', padding: '24px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.25)', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Add Custom Post Row</h3>
+              <button 
+                onClick={() => setIsAddModalOpen(false)}
+                style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAddCustomEntry} style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.8rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Day Name</label>
+                  <select
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#f8fafc', outline: 'none' }}
+                    value={newEntryForm.dayName}
+                    onChange={(e) => setNewEntryForm({ ...newEntryForm, dayName: e.target.value })}
+                  >
+                    <option value="Monday">Monday</option>
+                    <option value="Tuesday">Tuesday</option>
+                    <option value="Wednesday">Wednesday</option>
+                    <option value="Thursday">Thursday</option>
+                    <option value="Friday">Friday</option>
+                    <option value="Saturday">Saturday</option>
+                    <option value="Sunday">Sunday</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Post Type</label>
+                  <select
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#f8fafc', outline: 'none' }}
+                    value={newEntryForm.postType}
+                    onChange={(e) => setNewEntryForm({ ...newEntryForm, postType: e.target.value })}
+                  >
+                    <option value="Graphic">Graphic</option>
+                    <option value="Reel">Reel</option>
+                    <option value="Carousel">Carousel</option>
+                    <option value="Story">Story</option>
+                    <option value="Video">Video</option>
+                    <option value="Blog">Blog</option>
+                    <option value="Poll">Poll</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Scheduled Date</label>
+                  <input
+                    type="date"
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none' }}
+                    value={newEntryForm.scheduledDate}
+                    onChange={(e) => setNewEntryForm({ ...newEntryForm, scheduledDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Scheduled Time</label>
+                  <input
+                    type="time"
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none' }}
+                    value={newEntryForm.scheduledTime}
+                    onChange={(e) => setNewEntryForm({ ...newEntryForm, scheduledTime: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Content Idea</label>
+                <input
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none' }}
+                  placeholder="e.g. Exclusive Weekend Product Launch Discount"
+                  value={newEntryForm.contentIdea}
+                  onChange={(e) => setNewEntryForm({ ...newEntryForm, contentIdea: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Short Description</label>
+                <input
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none' }}
+                  placeholder="e.g. Promote the weekend sale with creative visual assets."
+                  value={newEntryForm.contentDescription}
+                  onChange={(e) => setNewEntryForm({ ...newEntryForm, contentDescription: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Caption</label>
+                <textarea
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none', resize: 'vertical' }}
+                  rows={3}
+                  placeholder="Engaging caption for the post"
+                  value={newEntryForm.caption}
+                  onChange={(e) => setNewEntryForm({ ...newEntryForm, caption: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Hashtags (comma separated)</label>
+                <input
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#ffffff', outline: 'none' }}
+                  placeholder="e.g. discount, summer, shopping"
+                  value={newEntryForm.hashtagsStr}
+                  onChange={(e) => setNewEntryForm({ ...newEntryForm, hashtagsStr: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'end', gap: '8px', marginTop: '12px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(false)}
+                  style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: '8px', color: '#475569', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{ padding: '8px 20px', background: '#4f46e5', border: 'none', borderRadius: '8px', color: '#ffffff', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  Add Entry
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

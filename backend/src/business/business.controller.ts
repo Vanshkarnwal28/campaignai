@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { BusinessService } from './business.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -8,8 +8,8 @@ export class BusinessController {
   constructor(private readonly businessService: BusinessService) {}
 
   @Get('onboarding/questions')
-  getQuestions() {
-    return this.businessService.getQuestionsList();
+  getQuestions(@Query('lang') lang?: string) {
+    return this.businessService.getQuestionsList(lang);
   }
 
   /** Phase 1: Start a new onboarding conversation — returns first AI greeting */
@@ -36,5 +36,30 @@ export class BusinessController {
   @Get(':id/profile')
   async getProfile(@Param('id') id: string) {
     return this.businessService.getProfile(id);
+  }
+
+  @Get(':id/profile-details')
+  async getProfileDetails(@Param('id') id: string) {
+    return this.businessService.getProfileDetails(id);
+  }
+
+  @Post(':id/profile')
+  async updateProfile(@Param('id') id: string, @Body() body: any) {
+    return this.businessService.updateProfile(id, body);
+  }
+
+  @Post(':id/subscription/upgrade')
+  async upgradePlan(@Param('id') id: string, @Body() body: { plan: string }) {
+    return this.businessService.upgradePlan(id, body.plan);
+  }
+
+  @Post(':id/subscription/renew')
+  async renewSubscription(@Param('id') id: string) {
+    return this.businessService.renewSubscription(id);
+  }
+
+  @Post(':id/subscription/cancel')
+  async cancelSubscription(@Param('id') id: string) {
+    return this.businessService.cancelSubscription(id);
   }
 }

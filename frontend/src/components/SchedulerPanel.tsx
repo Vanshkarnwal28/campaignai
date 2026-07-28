@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Play, Pause, XCircle, Calendar, RefreshCw, CheckCircle2, Send } from 'lucide-react';
+import { 
+  Clock, 
+  Play, 
+  Pause, 
+  XCircle, 
+  Calendar, 
+  RefreshCw, 
+  CheckCircle2, 
+  Send, 
+  Search, 
+  Filter 
+} from 'lucide-react';
 import { api } from '../services/api';
 
 interface SchedulerPanelProps {
@@ -11,6 +22,8 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({ businessId, onTo
   const [loading, setLoading] = useState(false);
   const [posts, setPosts] = useState<any[]>([]);
   const [triggering, setTriggering] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
 
   const fetchPosts = async () => {
     if (!businessId) return;
@@ -72,101 +85,329 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({ businessId, onTo
     }
   };
 
+  // Safe Date parsing utility
+  const parseSafeDate = (input: any): Date | null => {
+    if (!input) return null;
+    let date: Date;
+    if (input.toDate && typeof input.toDate === 'function') {
+      date = input.toDate();
+    } else if (input._seconds) {
+      date = new Date(input._seconds * 1000);
+    } else {
+      date = new Date(input);
+    }
+    return isNaN(date.getTime()) ? null : date;
+  };
+
+  // Filter posts based on search and status
+  const filteredPosts = posts.filter(post => {
+    const matchesSearch = (post.caption || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          (post.headline || '').toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'ALL' || post.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  // Calculate statistics
+  const scheduledCount = posts.filter(p => p.status === 'SCHEDULED').length;
+  const publishedCount = posts.filter(p => p.status === 'PUBLISHED').length;
+  const pausedCount = posts.filter(p => p.status === 'PAUSED').length;
+
+  // Inline CSS definitions for maximum compatibility
+  const containerStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '24px',
+    fontFamily: 'Arial, sans-serif',
+    background: '#f8fafc',
+    minHeight: '100vh',
+    padding: '24px'
+  };
+
+  const headerCardStyle: React.CSSProperties = {
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '16px',
+    padding: '24px',
+    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '20px'
+  };
+
+  const statsGridStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+    gap: '16px'
+  };
+
+  const statCardStyle = (borderColor: string): React.CSSProperties => ({
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderLeft: `4px solid ${borderColor}`,
+    borderRadius: '12px',
+    padding: '20px',
+    boxShadow: '0 2px 4px -1px rgb(0 0 0 / 0.05)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px'
+  });
+
+  const filterBarStyle: React.CSSProperties = {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '12px',
+    alignItems: 'center',
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '12px',
+    padding: '16px',
+    boxShadow: '0 1px 3px rgb(0 0 0 / 0.05)'
+  };
+
+  const inputStyle: React.CSSProperties = {
+    flex: 1,
+    minWidth: '240px',
+    padding: '8px 12px 8px 36px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    fontSize: '0.85rem',
+    outline: 'none',
+    color: '#1e293b'
+  };
+
+  const selectStyle: React.CSSProperties = {
+    padding: '8px 12px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    fontSize: '0.85rem',
+    background: '#ffffff',
+    outline: 'none',
+    cursor: 'pointer',
+    color: '#334155',
+    fontWeight: 'bold'
+  };
+
+  const triggerButtonStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '10px 20px',
+    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+    color: '#ffffff',
+    border: 'none',
+    borderRadius: '10px',
+    fontWeight: 'bold',
+    fontSize: '0.85rem',
+    cursor: 'pointer',
+    boxShadow: '0 4px 6px -1px rgba(79, 70, 229, 0.2)',
+    transition: 'opacity 0.2s'
+  };
+
+  const tableCardStyle: React.CSSProperties = {
+    background: '#ffffff',
+    border: '1px solid #e2e8f0',
+    borderRadius: '16px',
+    padding: '24px',
+    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)',
+    overflow: 'hidden'
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div>
-          <div className="flex items-center gap-2">
-            <Clock className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Auto Scheduler & Meta Publisher</h2>
+    <div style={containerStyle}>
+      {/* Top Header Card */}
+      <div style={headerCardStyle}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div style={{ background: '#f5f3ff', padding: '12px', borderRadius: '12px' }}>
+            <Clock className="w-6 h-6 text-indigo-600" />
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Automated publishing engine for Facebook Pages & Instagram Business accounts.
-          </p>
+          <div>
+            <h1 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>Auto Scheduler & Publisher</h1>
+            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: '4px 0 0 0' }}>
+              Verify status, pause publishing workflows, or trigger instant publisher engines to Meta channels.
+            </p>
+          </div>
         </div>
 
         <button
           onClick={handleTriggerNow}
           disabled={triggering}
-          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl font-semibold text-sm transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50"
+          style={{ ...triggerButtonStyle, opacity: triggering ? 0.7 : 1 }}
         >
           {triggering ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           {triggering ? 'Publishing Due Posts...' : 'Trigger Immediate Publisher'}
         </button>
       </div>
 
-      {/* Posts Table / Cards */}
-      {loading ? (
-        <div className="flex items-center justify-center p-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
-          <span className="ml-2 text-sm text-slate-500">Loading scheduled queue...</span>
+      {/* Statistics Row */}
+      <div style={statsGridStyle}>
+        <div style={statCardStyle('#3b82f6')}>
+          <div style={{ background: '#eff6ff', padding: '10px', borderRadius: '10px' }}>
+            <Clock className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', display: 'block', textTransform: 'uppercase' }}>Scheduled Queue</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>{scheduledCount}</span>
+          </div>
         </div>
-      ) : posts.length === 0 ? (
-        <div className="text-center py-16 px-4 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800">
-          <Calendar className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-          <h3 className="text-lg font-bold text-slate-800 dark:text-white">No Scheduled Posts</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1">
-            Schedule posts from your Content Calendar or Campaign Builder to view and manage them here.
-          </p>
+
+        <div style={statCardStyle('#10b981')}>
+          <div style={{ background: '#ecfdf5', padding: '10px', borderRadius: '10px' }}>
+            <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+          </div>
+          <div>
+            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', display: 'block', textTransform: 'uppercase' }}>Successfully Published</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>{publishedCount}</span>
+          </div>
         </div>
-      ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+
+        <div style={statCardStyle('#f59e0b')}>
+          <div style={{ background: '#fffbeb', padding: '10px', borderRadius: '10px' }}>
+            <Pause className="w-5 h-5 text-amber-600" />
+          </div>
+          <div>
+            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', display: 'block', textTransform: 'uppercase' }}>Paused Posts</span>
+            <span style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e293b' }}>{pausedCount}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter and Search Bar */}
+      <div style={filterBarStyle}>
+        <div style={{ position: 'relative', flex: 1, display: 'flex', alignItems: 'center' }}>
+          <Search className="w-4 h-4 text-slate-400" style={{ position: 'absolute', left: '12px' }} />
+          <input
+            type="text"
+            style={inputStyle}
+            placeholder="Search scheduled posts by caption..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Filter className="w-4 h-4 text-slate-400" />
+          <select
+            style={selectStyle}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="ALL">All Statuses</option>
+            <option value="SCHEDULED">Scheduled</option>
+            <option value="PUBLISHED">Published</option>
+            <option value="PAUSED">Paused</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Content Table Card */}
+      <div style={tableCardStyle}>
+        {loading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '48px', gap: '12px' }}>
+            <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
+            <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Refreshing scheduled list...</span>
+          </div>
+        ) : filteredPosts.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 16px', border: '2px dashed #cbd5e1', borderRadius: '12px' }}>
+            <Calendar className="w-12 h-12 text-slate-300" style={{ margin: '0 auto 12px auto' }} />
+            <h3 style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#334155', margin: '0 0 4px 0' }}>No scheduled queue items</h3>
+            <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0, maxWidth: '360px', marginLeft: 'auto', marginRight: 'auto' }}>
+              Create marketing campaigns using the AI Ad Generator to schedule posts.
+            </p>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
-                  <th className="py-3.5 px-4">Platform & Type</th>
-                  <th className="py-3.5 px-4">Caption / Visual</th>
-                  <th className="py-3.5 px-4">Scheduled Time</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
+                <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#64748b', fontWeight: 'bold', fontSize: '0.7rem', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '12px' }}>Platform & Type</th>
+                  <th style={{ padding: '12px' }}>Caption / Content Details</th>
+                  <th style={{ padding: '12px' }}>Publish Time</th>
+                  <th style={{ padding: '12px' }}>Status</th>
+                  <th style={{ padding: '12px', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                {posts.map((post) => {
-                  const scheduledDate = post.scheduledTime
-                    ? new Date(post.scheduledTime?._seconds ? post.scheduledTime._seconds * 1000 : post.scheduledTime)
-                    : null;
+              <tbody>
+                {filteredPosts.map((post) => {
+                  const scheduledDate = parseSafeDate(post.scheduledTime);
+                  
+                  // Platform pill styling
+                  const isFb = post.platform === 'Facebook';
+                  const platformPillStyle: React.CSSProperties = {
+                    display: 'inline-block',
+                    padding: '2px 8px',
+                    borderRadius: '6px',
+                    fontSize: '0.65rem',
+                    fontWeight: 'bold',
+                    textTransform: 'uppercase',
+                    width: 'fit-content',
+                    background: isFb ? '#eff6ff' : '#fdf2f8',
+                    color: isFb ? '#1d4ed8' : '#db2777',
+                    border: isFb ? '1px solid #bfdbfe' : '1px solid #fbcfe8'
+                  };
+
+                  // Status badge styling
+                  let badgeBg = '#f1f5f9';
+                  let badgeColor = '#475569';
+                  if (post.status === 'PUBLISHED') {
+                    badgeBg = '#d1fae5';
+                    badgeColor = '#065f46';
+                  } else if (post.status === 'SCHEDULED') {
+                    badgeBg = '#dbeafe';
+                    badgeColor = '#1e40af';
+                  } else if (post.status === 'PAUSED') {
+                    badgeBg = '#fef3c7';
+                    badgeColor = '#92400e';
+                  } else if (post.status === 'CANCELLED') {
+                    badgeBg = '#fee2e2';
+                    badgeColor = '#991b1b';
+                  }
+
+                  const statusPillStyle: React.CSSProperties = {
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '2px 8px',
+                    borderRadius: '9999px',
+                    fontSize: '0.65rem',
+                    fontWeight: 'bold',
+                    background: badgeBg,
+                    color: badgeColor
+                  };
 
                   return (
-                    <tr key={post.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                      <td className="py-4 px-4 font-semibold text-slate-900 dark:text-white">
-                        <div className="flex flex-col gap-1">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase w-fit ${
-                              post.platform === 'Facebook'
-                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                                : 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300'
-                            }`}
-                          >
-                            {post.platform}
-                          </span>
-                          <span className="text-slate-500 dark:text-slate-400 text-[11px]">{post.postType || 'Image Post'}</span>
+                    <tr key={post.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '16px 12px' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          <span style={platformPillStyle}>{post.platform || 'Facebook'}</span>
+                          <span style={{ fontSize: '0.7rem', color: '#64748b' }}>{post.postType || 'Image Post'}</span>
                         </div>
                       </td>
 
-                      <td className="py-4 px-4 max-w-xs">
-                        <p className="font-medium text-slate-800 dark:text-slate-200 line-clamp-2">{post.caption}</p>
-                        {post.headline && <p className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 font-semibold">{post.headline}</p>}
+                      <td style={{ padding: '16px 12px', maxWidth: '320px' }}>
+                        <div style={{ fontSize: '0.8rem', color: '#1e293b', fontWeight: 500, lineHeight: 1.4 }} className="line-clamp-2">
+                          {post.caption}
+                        </div>
+                        {post.headline && (
+                          <div style={{ fontSize: '0.7rem', color: '#4f46e5', fontWeight: 'bold', marginTop: '4px' }}>
+                            Headline: {post.headline}
+                          </div>
+                        )}
                       </td>
 
-                      <td className="py-4 px-4 text-slate-600 dark:text-slate-300 font-medium">
-                        {scheduledDate ? scheduledDate.toLocaleString() : 'Immediate'}
+                      <td style={{ padding: '16px 12px', fontSize: '0.75rem', color: '#475569', fontWeight: 500 }}>
+                        {scheduledDate ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span>{scheduledDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                            <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{scheduledDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        ) : 'Immediate'}
                       </td>
 
-                      <td className="py-4 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
-                            post.status === 'PUBLISHED'
-                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                              : post.status === 'SCHEDULED'
-                              ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                              : post.status === 'PAUSED'
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                              : 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                          }`}
-                        >
+                      <td style={{ padding: '16px 12px' }}>
+                        <span style={statusPillStyle}>
                           {post.status === 'PUBLISHED' && <CheckCircle2 className="w-3 h-3" />}
                           {post.status === 'PAUSED' && <Pause className="w-3 h-3" />}
                           {post.status === 'CANCELLED' && <XCircle className="w-3 h-3" />}
@@ -174,12 +415,12 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({ businessId, onTo
                         </span>
                       </td>
 
-                      <td className="py-4 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                      <td style={{ padding: '16px 12px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
                           {post.status === 'SCHEDULED' && (
                             <button
                               onClick={() => handlePause(post.id)}
-                              className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950 rounded-lg transition-colors"
+                              style={{ border: 'none', background: 'transparent', padding: '6px', cursor: 'pointer', borderRadius: '6px', color: '#d97706' }}
                               title="Pause Publishing"
                             >
                               <Pause className="w-4 h-4" />
@@ -189,7 +430,7 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({ businessId, onTo
                           {post.status === 'PAUSED' && (
                             <button
                               onClick={() => handleResume(post.id)}
-                              className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950 rounded-lg transition-colors"
+                              style={{ border: 'none', background: 'transparent', padding: '6px', cursor: 'pointer', borderRadius: '6px', color: '#059669' }}
                               title="Resume Publishing"
                             >
                               <Play className="w-4 h-4" />
@@ -199,7 +440,7 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({ businessId, onTo
                           {post.status !== 'PUBLISHED' && post.status !== 'CANCELLED' && (
                             <button
                               onClick={() => handleCancel(post.id)}
-                              className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950 rounded-lg transition-colors"
+                              style={{ border: 'none', background: 'transparent', padding: '6px', cursor: 'pointer', borderRadius: '6px', color: '#ef4444' }}
                               title="Cancel Post"
                             >
                               <XCircle className="w-4 h-4" />
@@ -213,8 +454,8 @@ export const SchedulerPanel: React.FC<SchedulerPanelProps> = ({ businessId, onTo
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };

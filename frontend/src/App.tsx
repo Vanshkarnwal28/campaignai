@@ -31,7 +31,6 @@ import {
   Building,
   Menu,
   Calendar as CalendarIcon,
-  Users,
   Settings as SettingsIcon,
 } from 'lucide-react';
 import { api } from './services/api';
@@ -43,7 +42,8 @@ import CampaignGenerator from './components/CampaignGenerator';
 import ConnectMeta from './components/ConnectMeta';
 import { ContentCalendar } from './components/ContentCalendar';
 import { SchedulerPanel } from './components/SchedulerPanel';
-import { LeadsDashboard } from './components/LeadsDashboard';
+import { ProfileScreen } from './components/ProfileScreen';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 
 // --- Toast notification utility ---
@@ -57,9 +57,17 @@ interface ToastMsg {
 export default function App() {
   // Theme & Navigation State
   const [isLight, setIsLight] = useState(true);
-  const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'admin-login' | 'onboarding' | 'dashboard' | 'builder' | 'generator' | 'manager' | 'analytics' | 'support' | 'admin' | 'connect-meta' | 'leads' | 'calendar' | 'scheduler' | 'settings'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'admin-login' | 'onboarding' | 'dashboard' | 'builder' | 'generator' | 'manager' | 'analytics' | 'support' | 'admin' | 'connect-meta' | 'calendar' | 'scheduler' | 'settings' | 'profile'>('landing');
   // Auth state
   const [user, setUser] = useState<any>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
+  useEffect(() => {
+    const handleGlobalError = (event: ErrorEvent) => {
+      setGlobalError(`${event.message} at ${event.filename}:${event.lineno}`);
+    };
+    window.addEventListener('error', handleGlobalError);
+    return () => window.removeEventListener('error', handleGlobalError);
+  }, []);
   const [authView, setAuthView] = useState<'login' | 'register'>('login');
   
   // Workspace selection
@@ -517,6 +525,13 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
+      {globalError && (
+        <div style={{ padding: '24px', background: '#fee2e2', color: '#991b1b', borderBottom: '1px solid #f87171', fontFamily: 'monospace', zIndex: 99999 }}>
+          <h3 style={{ margin: '0 0 8px 0' }}>Captured React Render Crash:</h3>
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: '0.8rem' }}>{globalError}</pre>
+          <button onClick={() => { setGlobalError(null); window.location.reload(); }} style={{ marginTop: '12px', padding: '6px 12px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Dismiss</button>
+        </div>
+      )}
       
       {/* --- TOAST NOTIFICATIONS WRAPPER --- */}
       <div className="toast-container">
@@ -954,15 +969,7 @@ export default function App() {
                   <Clock size={18} />
                   {!sidebarCollapsed && <span>Auto Scheduler</span>}
                 </button>
-                <button onClick={() => setCurrentPage('leads')} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', width: '100%',
-                  border: 'none', borderRadius: 10, cursor: 'pointer', background: currentPage === 'leads' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
-                  color: currentPage === 'leads' ? 'var(--color-primary)' : 'var(--color-text-muted)',
-                  transition: 'var(--transition-smooth)', textAlign: 'left', fontSize: '0.9rem'
-                }}>
-                  <Users size={18} />
-                  {!sidebarCollapsed && <span>Lead CRM</span>}
-                </button>
+
                 <button onClick={() => setCurrentPage('connect-meta')} style={{
                   display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', width: '100%',
                   border: 'none', borderRadius: 10, cursor: 'pointer', background: currentPage === 'connect-meta' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
@@ -989,6 +996,15 @@ export default function App() {
                 }}>
                   <SettingsIcon size={18} />
                   {!sidebarCollapsed && <span>Settings</span>}
+                </button>
+                <button onClick={() => setCurrentPage('profile')} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', width: '100%',
+                  border: 'none', borderRadius: 10, cursor: 'pointer', background: currentPage === 'profile' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                  color: currentPage === 'profile' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                  transition: 'var(--transition-smooth)', textAlign: 'left', fontSize: '0.9rem'
+                }}>
+                  <UserIcon size={18} />
+                  {!sidebarCollapsed && <span>Profile</span>}
                 </button>
                 {user?.role === 'ADMIN' && (
                   <button onClick={loadAdminDashboard} style={{
@@ -1452,11 +1468,11 @@ export default function App() {
               </main>
             )}
 
-            {/* --- PAGE: LEADS CRM VIEW --- */}
-            {currentPage === 'leads' && user?.businessId && (
-              <main style={{ padding: 40 }}>
-                <LeadsDashboard businessId={user.businessId} onToast={addToast} />
-              </main>
+            {/* --- PAGE: PROFILE --- */}
+            {currentPage === 'profile' && user && (
+              <ErrorBoundary>
+                <ProfileScreen businessId={user.businessId || 'default_business'} onToast={addToast} />
+              </ErrorBoundary>
             )}
 
             {/* --- PAGE: CONNECT META --- */}

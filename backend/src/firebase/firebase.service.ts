@@ -94,6 +94,16 @@ class MockQuery {
     return this;
   }
 
+  count() {
+    return {
+      get: async () => {
+        const snap = await this.get();
+        const count = snap.docs.length;
+        return { data: () => ({ count }) };
+      }
+    };
+  }
+
   async get() {
     let docs = this.db.getDocs(this.colName);
 
@@ -315,7 +325,7 @@ export class FirebaseService implements OnModuleInit {
 
   // ─── Internal helpers ────────────────────────────────────────────────────────
 
-  private col(name: string) {
+  col(name: string) {
     if (!process.env.FIREBASE_PROJECT_ID) {
       return new MockCollection(name, this.db) as any;
     }
@@ -338,6 +348,7 @@ export class FirebaseService implements OnModuleInit {
     name: string;
     passwordHash: string | null;
     role?: string;
+    preferredLanguage?: string;
   }, id?: string) {
     const userId = id || this.generateId();
     const now = new Date();
@@ -346,6 +357,7 @@ export class FirebaseService implements OnModuleInit {
       name: data.name,
       passwordHash: data.passwordHash ?? null,
       role: data.role || 'MEMBER',
+      preferredLanguage: data.preferredLanguage || 'English',
       createdAt: now,
       updatedAt: now,
     };
@@ -720,6 +732,28 @@ export class FirebaseService implements OnModuleInit {
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   }
 
+  async updateSubscription(id: string, data: Record<string, any>) {
+    const now = new Date();
+    await this.col('subscriptions').doc(id).update({ ...data, updatedAt: now });
+    const doc = await this.col('subscriptions').doc(id).get();
+    return { id, ...doc.data() };
+  }
+
+  async getPaymentsByBusinessId(businessId: string) {
+    const snap = await this.col('payments')
+      .where('businessId', '==', businessId)
+      .get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  }
+
+  async createPaymentRecord(data: Record<string, any>) {
+    const id = this.generateId();
+    const now = new Date();
+    const payment = { ...data, createdAt: now };
+    await this.col('payments').doc(id).set(payment);
+    return { id, ...payment };
+  }
+
   async getAllSubscriptions() {
     const snap = await this.col('subscriptions').get();
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -874,6 +908,16 @@ export class FirebaseService implements OnModuleInit {
     await this.col('contentCalendar').doc(id).update({ ...data, updatedAt: new Date() });
     const updated = await this.col('contentCalendar').doc(id).get();
     return { id, ...updated.data() };
+  }
+
+  async getContentCalendarEntryById(id: string) {
+    const snap = await this.col('contentCalendar').doc(id).get();
+    if (!snap.exists) return null;
+    return { id: snap.id, ...snap.data() };
+  }
+
+  async deleteContentCalendarEntry(id: string) {
+    await this.col('contentCalendar').doc(id).delete();
   }
 
   // ─── Generated Content ────────────────────────────────────────────────────────

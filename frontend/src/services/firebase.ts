@@ -21,7 +21,13 @@ let googleProvider: GoogleAuthProvider | null = null;
 let isConfigured = false;
 
 // Only apiKey + projectId are required for Firebase Auth to work
-if (firebaseConfig.apiKey && firebaseConfig.apiKey !== '<your-api-key>' && firebaseConfig.projectId) {
+const hasRealApiKey = firebaseConfig.apiKey && 
+  firebaseConfig.apiKey !== '<your-api-key>' && 
+  firebaseConfig.apiKey !== 'your_firebase_api_key' && 
+  !firebaseConfig.apiKey.startsWith('your_') &&
+  !firebaseConfig.apiKey.includes('placeholder');
+
+if (hasRealApiKey && firebaseConfig.projectId) {
   try {
     app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     auth = getAuth(app);
@@ -35,9 +41,9 @@ if (firebaseConfig.apiKey && firebaseConfig.apiKey !== '<your-api-key>' && fireb
     console.error('[Firebase] Initialization failed:', err);
   }
 } else {
-  console.error(
-    '[Firebase] CRITICAL: Firebase config is missing. Add real values to frontend/.env.\n' +
-    'Required: VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_AUTH_DOMAIN'
+  console.warn(
+    '[Firebase] Running in Mock/Offline mode. Real Firebase config is missing or using placeholder values in frontend/.env.\n' +
+    'Required for live Firebase: VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID, VITE_FIREBASE_AUTH_DOMAIN'
   );
 }
 

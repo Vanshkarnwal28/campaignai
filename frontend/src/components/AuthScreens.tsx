@@ -48,6 +48,7 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
   const [businessName, setBusinessName] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [preferredLanguage, setPreferredLanguage] = useState('English');
 
   // States
   const [loading, setLoading] = useState(false);
@@ -95,7 +96,7 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
 
     setLoading(true);
     try {
-      await api.auth.register(email, name, password, businessName);
+      await api.auth.register(email, name, password, businessName, preferredLanguage);
       setSuccessMessage('Account created! A verification email has been sent. Please check your inbox.');
       addToast('Registration Successful', 'Verification link sent to ' + email, 'success');
       setView('verify');
@@ -512,6 +513,22 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
                 <div style={{ position: 'relative' }}>
                   <Lock size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
                   <input className="form-input" style={{ paddingLeft: 40 }} type="password" placeholder="Confirm password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: '0.85rem', fontWeight: 500, opacity: 0.9 }}>Preferred Onboarding Language</label>
+                <div style={{ position: 'relative' }}>
+                  <select
+                    className="form-input"
+                    value={preferredLanguage}
+                    onChange={e => setPreferredLanguage(e.target.value)}
+                    style={{ paddingLeft: 14, appearance: 'auto', background: 'var(--color-input-bg)', width: '100%' }}
+                  >
+                    {['English', 'Hindi', 'Hinglish', 'Bengali', 'Marathi', 'Telugu', 'Tamil', 'Gujarati', 'Urdu', 'Kannada', 'Malayalam', 'Punjabi'].map(lang => (
+                      <option key={lang} value={lang} style={{ background: 'var(--color-card-bg)', color: 'var(--color-text)' }}>{lang}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

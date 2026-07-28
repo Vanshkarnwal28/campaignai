@@ -39,6 +39,16 @@ export class IntegrationsService {
   ) {
     this.logger.log(`Generating Strategy. Industry: ${industry}. Mock: ${this.isMock}`);
 
+    const preferredLanguage = additionalContext?.preferredLanguage || 'English';
+    let languageInstruction = '';
+    if (preferredLanguage !== 'English') {
+      if (preferredLanguage.toLowerCase() === 'hinglish') {
+        languageInstruction = `\nIMPORTANT: The user has selected 'Hinglish' (Hindi written in the English script/alphabet, e.g. 'Aapki strategy bohot acchi hai'). You MUST write all the SWOT strengths/weaknesses/opportunities/threats and competitor strengths/strategies in Hinglish (Hindi written using the English/Latin alphabet). Do NOT use Devanagari script.`;
+      } else {
+        languageInstruction = `\nIMPORTANT: The user has selected '${preferredLanguage}' as their preferred language. You MUST write all the SWOT strengths/weaknesses/opportunities/threats and competitor strengths/strategies in '${preferredLanguage}' language. Use the standard script/writing system of '${preferredLanguage}' (e.g. Devanagari for Hindi, Bengali script for Bengali, etc.).`;
+      }
+    }
+
     const result = await this.openRouter.chatJson<{
       swot: { strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] };
       competitors: { competitors: { name: string; strength: string; strategy: string }[] };
@@ -48,7 +58,7 @@ export class IntegrationsService {
 Industry: ${industry}
 Target Audience: ${targetAudience}
 Brand Voice: ${brandVoice}
-Additional Context: ${JSON.stringify(additionalContext || {})}
+Additional Context: ${JSON.stringify(additionalContext || {})}${languageInstruction}
 
 Return ONLY valid JSON in this exact format (no markdown, no code fences):
 {

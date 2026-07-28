@@ -19,7 +19,7 @@ export class AuthController {
   @Post('sync')
   async sync(
     @Request() req: any,
-    @Body() body: { name?: string; businessName?: string },
+    @Body() body: { name?: string; businessName?: string; preferredLanguage?: string },
   ) {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -33,6 +33,7 @@ export class AuthController {
         decoded.email || `${decoded.uid}@user.com`,
         body.name || decoded.name || 'User',
         body.businessName,
+        body.preferredLanguage,
       );
       
       const businessId = synced.user.businessId;
@@ -57,7 +58,7 @@ export class AuthController {
 
   @Post('register')
   async register(@Body() body: any) {
-    return this.authService.register(body.email, body.name, body.password);
+    return this.authService.register(body.email, body.name, body.password, body.preferredLanguage);
   }
 
   @Post('login')
@@ -68,6 +69,14 @@ export class AuthController {
   @Post('admin/login')
   async adminLogin(@Body() body: any) {
     return this.authService.adminLogin(body.email, body.password);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('profile/language')
+  async updateLanguage(@Request() req: any, @Body() body: { preferredLanguage: string }) {
+    const user = req.user;
+    await this.authService.updateUserLanguage(user.id, body.preferredLanguage);
+    return { success: true, preferredLanguage: body.preferredLanguage };
   }
 
   @UseGuards(JwtAuthGuard)
@@ -88,6 +97,7 @@ export class AuthController {
       businessId,
       businessName,
       onboardingCompleted,
+      preferredLanguage: user.preferredLanguage || 'English',
     };
   }
 }
