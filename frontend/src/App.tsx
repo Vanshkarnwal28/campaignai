@@ -639,11 +639,11 @@ export default function App() {
                       </div>
                       <div className="glass-panel" style={{ padding: 20 }}>
                         <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>MOCK ACQUISITION CPA</div>
-                        <div style={{ fontSize: '2rem', fontWeight: 700, marginTop: 4 }}>$12.40</div>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, marginTop: 4 }}>₹12.40</div>
                       </div>
                       <div className="glass-panel" style={{ padding: 20 }}>
                         <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>MOCK SPEND RATIO</div>
-                        <div style={{ fontSize: '2rem', fontWeight: 700, marginTop: 4 }}>$4,821.50</div>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, marginTop: 4 }}>₹4,821.50</div>
                       </div>
                     </div>
                     {/* Fake line chart */}
@@ -1183,7 +1183,7 @@ export default function App() {
                       <DollarSign size={14} />
                     </div>
                     <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0' }}>
-                      ${metrics.totalSpend?.toLocaleString(undefined, { maximumFractionDigits: 2 }) || '0.00'}
+                      ₹{metrics.totalSpend?.toLocaleString(undefined, { maximumFractionDigits: 2 }) || '0.00'}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--color-success)' }}>● Sync Active</div>
                   </div>
@@ -1203,7 +1203,7 @@ export default function App() {
                       <MousePointerClick size={14} />
                     </div>
                     <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0' }}>
-                      ${metrics.cpc?.toFixed(2) || '0.00'}
+                      ₹{metrics.cpc?.toFixed(2) || '0.00'}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--color-success)' }}>-8% cost reduction</div>
                   </div>
@@ -1429,7 +1429,7 @@ export default function App() {
                               </span>
                             </td>
                             <td style={{ padding: 20 }}>{c.objective}</td>
-                            <td style={{ padding: 20, fontWeight: 500 }}>${c.dailyBudget}/day</td>
+                            <td style={{ padding: 20, fontWeight: 500 }}>₹{c.dailyBudget}/day</td>
                             <td style={{ padding: 20, color: 'var(--color-accent)', fontWeight: 600 }}>{c.healthScore}%</td>
                             <td style={{ padding: 20, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>{c.metaCampaignId}</td>
                             <td style={{ padding: 20 }}>

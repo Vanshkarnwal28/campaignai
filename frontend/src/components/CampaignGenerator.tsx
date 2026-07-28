@@ -215,7 +215,7 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
             </div>
             <div className="glass-panel" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>EXPECTED CPC</span>
-              <span style={{ fontSize: '2rem', fontWeight: 800 }}>${generatedStrategy.expectedCPC}</span>
+              <span style={{ fontSize: '2rem', fontWeight: 800 }}>₹{generatedStrategy.expectedCPC}</span>
               <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>Refined target parameters</span>
             </div>
             <div className="glass-panel" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
