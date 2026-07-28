@@ -82,13 +82,30 @@ export default function App() {
   const [currentConvoId, setCurrentConvoId] = useState<string | undefined>(undefined);
   
   // Onboarding chatbot state
-  const [onboardingAnswers, setOnboardingAnswers] = useState<{ q: string; a: string }[]>([]);
-  const [currentOnboardingIndex, setCurrentOnboardingIndex] = useState(0);
   const [chatbotMessages, setChatbotMessages] = useState<any[]>([]);
   const [chatbotInput, setChatbotInput] = useState('');
-  const [onboardingQuestions, setOnboardingQuestions] = useState<string[]>([]);
   const [isOnboardingCompleted, setIsOnboardingCompleted] = useState(false);
   const [isStrategyGenerating, setIsStrategyGenerating] = useState(false);
+  const [onboardingProgress, setOnboardingProgress] = useState(0);
+
+  const initOnboarding = async (bId: string) => {
+    try {
+      console.log('[BusinessPlanner] Initializing onboarding chat for businessId:', bId);
+      console.log('[BusinessPlanner] API request started (startOnboarding)');
+      const startRes = await api.business.startOnboarding(bId);
+      console.log('[BusinessPlanner] API response received (startOnboarding):', startRes);
+      if (startRes && startRes.reply) {
+        setChatbotMessages([{ role: 'model', content: startRes.reply }]);
+        setOnboardingProgress(startRes.progress || 0);
+        setIsOnboardingCompleted(startRes.completed || false);
+      }
+      setCurrentPage('onboarding');
+      console.log('[BusinessPlanner] UI updated from backend response');
+    } catch (err: any) {
+      console.error('[BusinessPlanner] Failed to start onboarding chat:', err);
+      addToast('Onboarding Error', err.message || 'Failed to start AI Business Planner', 'alert');
+    }
+  };
 
   // App metrics & lists loaded from DB
   const [metrics, setMetrics] = useState<any>({
@@ -221,11 +238,7 @@ export default function App() {
                   setCurrentPage('dashboard');
                 }
               } else if (!res.onboardingCompleted) {
-                api.business.getQuestions().then(qList => {
-                  setOnboardingQuestions(qList);
-                  setChatbotMessages([{ role: 'model', content: `Hello ${res.name}! Let's design your strategy. ${qList[0]}` }]);
-                  setCurrentPage('onboarding');
-                });
+                await initOnboarding(res.businessId);
               } else {
                 if (window.location.pathname === '/connect-meta') {
                   setCurrentPage('connect-meta');
@@ -273,10 +286,7 @@ export default function App() {
                   setCurrentPage('dashboard');
                 }
               } else if (!res.onboardingCompleted) {
-                const qList = await api.business.getQuestions();
-                setOnboardingQuestions(qList);
-                setChatbotMessages([{ role: 'model', content: `Hello ${res.name}! Let's design your strategy. ${qList[0]}` }]);
-                setCurrentPage('onboarding');
+                await initOnboarding(res.businessId);
               } else {
                 if (window.location.pathname === '/connect-meta') {
                   setCurrentPage('connect-meta');
@@ -371,39 +381,43 @@ export default function App() {
   // --- Onboarding chatbot wizard ---
   const handleChatbotSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!chatbotInput.trim()) return;
+    if (!chatbotInput.trim() || isStrategyGenerating) return;
 
-    const currentQ = onboardingQuestions[currentOnboardingIndex];
-    const userA = chatbotInput;
-    const updatedAnswers = [...onboardingAnswers, { q: currentQ, a: userA }];
-    setOnboardingAnswers(updatedAnswers);
+    const userMessage = chatbotInput.trim();
+    console.log('[BusinessPlanner] Send button clicked / Enter key pressed');
+    console.log('[BusinessPlanner] Handler executed. Input message:', userMessage);
 
-    setChatbotMessages(prev => [...prev, { role: 'user', content: userA }]);
+    // 1. Optimistically display user's message in UI
+    setChatbotMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatbotInput('');
+    setIsStrategyGenerating(true);
 
-    const nextIndex = currentOnboardingIndex + 1;
-    if (nextIndex < onboardingQuestions.length) {
-      setCurrentOnboardingIndex(nextIndex);
-      setTimeout(() => {
-        setChatbotMessages(prev => [...prev, {
-          role: 'model',
-          content: onboardingQuestions[nextIndex]
-        }]);
-      }, 500);
-    } else {
-      // Completed onboarding
-      setIsOnboardingCompleted(true);
-      setIsStrategyGenerating(true);
-      setChatbotMessages(prev => [...prev, { role: 'model', content: "All details captured! Processing target demographics and SWOT charts..." }]);
+    try {
+      console.log('[BusinessPlanner] API request started');
+      const response = await api.business.chatOnboarding(user?.businessId, userMessage);
+      console.log('[BusinessPlanner] API response received:', response);
 
-      try {
-        await api.business.submitAnswers(user.businessId, updatedAnswers);
-        setIsStrategyGenerating(false);
-        setChatbotMessages(prev => [...prev, { role: 'model', content: "Strategy engine completed. Click the button below to view your Dashboard." }]);
-      } catch (err: any) {
-        addToast('Strategy Build Failed', err.message, 'alert');
-        setIsStrategyGenerating(false);
+      // 2. Display model response from backend
+      if (response && response.reply) {
+        setChatbotMessages(prev => [...prev, { role: 'model', content: response.reply }]);
       }
+
+      // 3. Update progress from backend response
+      if (typeof response.progress === 'number') {
+        setOnboardingProgress(response.progress);
+      }
+
+      // 4. Handle completion
+      if (response.completed) {
+        setIsOnboardingCompleted(true);
+        setUser((prev: any) => (prev ? { ...prev, onboardingCompleted: true } : null));
+      }
+      console.log('[BusinessPlanner] UI updated from backend response');
+    } catch (err: any) {
+      console.error('[BusinessPlanner] Error in chatOnboarding:', err);
+      addToast('Strategy Build Failed', err.message || 'Failed to communicate with Business Planner AI', 'alert');
+    } finally {
+      setIsStrategyGenerating(false);
     }
   };
 
@@ -753,10 +767,7 @@ export default function App() {
               return;
             }
             if (!syncedUser.onboardingCompleted) {
-              const qList = await api.business.getQuestions();
-              setOnboardingQuestions(qList);
-              setChatbotMessages([{ role: 'model', content: `Hello ${syncedUser.name}! I am the CampaignAI Business Planner. Let's design your high-converting marketing strategy. ${qList[0]}` }]);
-              setCurrentPage('onboarding');
+              await initOnboarding(syncedUser.businessId);
             } else {
               setCurrentPage('dashboard');
             }
@@ -792,12 +803,12 @@ export default function App() {
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: 6 }}>
                 <span>Strategy Profile Progress</span>
-                <span>{Math.round(((currentOnboardingIndex + (isOnboardingCompleted ? 1 : 0)) / onboardingQuestions.length) * 100)}%</span>
+                <span>{onboardingProgress}%</span>
               </div>
               <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,0.05)', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{
                   height: '100%', background: 'var(--color-primary)',
-                  width: `${((currentOnboardingIndex + (isOnboardingCompleted ? 1 : 0)) / onboardingQuestions.length) * 100}%`,
+                  width: `${onboardingProgress}%`,
                   transition: 'width 0.3s'
                 }}></div>
               </div>
