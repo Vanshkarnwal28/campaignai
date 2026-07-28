@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, Cpu, Award, Zap, BarChart2 } from 'lucide-react';
+import { ChevronRight, Cpu, Award, Zap, BarChart2, Send, X } from 'lucide-react';
 import { api } from '../services/api';
 
 interface CampaignGeneratorProps {
@@ -28,7 +28,9 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
   });
 
   // Step 2: Strategy Review
+  // Step 2: Strategy Review
   const [generatedStrategy, setGeneratedStrategy] = useState<any>(null);
+  const [isPostingModalOpen, setIsPostingModalOpen] = useState(false);
 
   const handleStep1Submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -344,6 +346,23 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
                 </div>
               </div>
 
+              {/* Meta Ads Posting Options Card */}
+              <div className="glass-panel" style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16, border: '1px solid var(--color-primary-light)', marginBottom: 20 }}>
+                <h3 style={{ fontSize: '1.1rem', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Send size={18} style={{ color: 'var(--color-primary)' }} /> Meta Ads Posting Plans
+                </h3>
+                <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                  Publish your generated visual copies and scheduling strategies using our standard posting tier budgets.
+                </p>
+                <button 
+                  className="btn-primary"
+                  style={{ padding: '12px 20px', background: 'linear-gradient(135deg, #6366f1, #4f46e5)', justifyContent: 'center' }}
+                  onClick={() => setIsPostingModalOpen(true)}
+                >
+                  Select Posting Plan & Budget
+                </button>
+              </div>
+
               {/* Action Button */}
               <button 
                 className="btn-primary" 
@@ -360,6 +379,155 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
         </div>
       )}
 
+
+      {/* POSTING PLANS MODAL POPUP */}
+      {isPostingModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
+          <div style={{ background: '#0b1329', border: '1px solid #1e293b', borderRadius: '24px', width: '100%', maxWidth: '1100px', maxHeight: '90vh', overflowY: 'auto', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.5)', color: '#ffffff', display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative' }}>
+            
+            {/* Close Button */}
+            <button 
+              onClick={() => setIsPostingModalOpen(false)}
+              style={{ position: 'absolute', top: '24px', right: '24px', border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px', borderRadius: '50%' }}
+            >
+              <X size={20} />
+            </button>
+
+            {/* Header */}
+            <div style={{ textAlign: 'center' }}>
+              <h2 style={{ fontSize: '1.75rem', fontWeight: 800, margin: '0 0 8px 0', background: 'linear-gradient(135deg, #a5b4fc, #6366f1)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                Select Posting & Meta Ad Plan
+              </h2>
+              <p style={{ fontSize: '0.9rem', color: '#94a3b8', margin: 0 }}>
+                Launch your campaigns directly on Facebook & Instagram with structured budget pacing plans.
+              </p>
+            </div>
+
+            {/* Tiles Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginTop: '12px' }}>
+              
+              {/* Tile 1: Basic */}
+              <div style={{ background: 'rgba(30, 41, 59, 0.4)', border: '1px solid #334155', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
+                <div>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#818cf8', display: 'block', textTransform: 'uppercase', marginBottom: '4px' }}>Free Plan</span>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: '0 0 12px 0' }}>Basic (Free 7 days trial)</h3>
+                  <div style={{ fontSize: '1.75rem', fontWeight: '900', margin: '16px 0' }}>Free</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.8rem', color: '#cbd5e1', flex: 1 }}>
+                  <div>✓ 3 post (2 standard, 1 carrousal) / week</div>
+                  <div>✓ graphics regenaration 3 times</div>
+                  <div>✓ No Ad campaign</div>
+                  <div>✓ Experience the next generation Marketing</div>
+                </div>
+                <button 
+                  onClick={() => { addToast('Trial Activated', 'Your 7-day basic posting trial has been successfully registered.', 'success'); setIsPostingModalOpen(false); }}
+                  style={{ width: '100%', padding: '10px', background: '#334155', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                >
+                  Start Free Trial
+                </button>
+              </div>
+
+              {/* Tile 2: Advance */}
+              <div style={{ background: 'rgba(99, 102, 241, 0.05)', border: '2px solid #6366f1', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative', boxShadow: '0 0 20px rgba(99, 102, 241, 0.1)' }}>
+                <div style={{ position: 'absolute', top: '-12px', left: '50%', transform: 'translateX(-50%)', background: '#6366f1', color: '#ffffff', fontSize: '0.65rem', fontWeight: 'bold', padding: '4px 12px', borderRadius: '9999px', textTransform: 'uppercase' }}>
+                  Popular Choice
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#818cf8', display: 'block', textTransform: 'uppercase', marginBottom: '4px' }}>Pro Campaign</span>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: '0 0 12px 0' }}>Advance</h3>
+                  <div style={{ fontSize: '1.75rem', fontWeight: '900', margin: '16px 0', color: '#a5b4fc' }}>₹5,900</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.8rem', color: '#cbd5e1', flex: 1 }}>
+                  <div>✓ 3 post (2 standard, 1 carrousal) / week</div>
+                  <div>✓ graphics regenaration 3 times</div>
+                  <div>✓ 15 days Ad campaign</div>
+                  <div>✓ 24X7 support</div>
+                  <div>✓ Visible growth in sales in 1 week</div>
+                  <div style={{ borderTop: '1px dashed #475569', paddingTop: '10px', marginTop: '4px', fontSize: '0.75rem', color: '#94a3b8' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span>Ad Budget:</span>
+                      <strong style={{ color: '#e2e8f0' }}>₹3,540</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span>API Cost:</span>
+                      <strong style={{ color: '#e2e8f0' }}>₹613.6</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #334155', paddingTop: '4px', marginTop: '4px' }}>
+                      <span>Total cost:</span>
+                      <strong style={{ color: '#818cf8' }}>₹4,153.6</strong>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => { addToast('Advance Option Selected', 'Advance plan selected. Connecting to payment portal...', 'info'); setIsPostingModalOpen(false); }}
+                  style={{ width: '100%', padding: '10px', background: '#6366f1', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                >
+                  Choose Advance (₹5,900)
+                </button>
+              </div>
+
+              {/* Tile 3: Premium */}
+              <div style={{ background: 'rgba(30, 41, 59, 0.4)', border: '1px solid #334155', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
+                <div>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#818cf8', display: 'block', textTransform: 'uppercase', marginBottom: '4px' }}>Enterprise Scale</span>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: '0 0 12px 0' }}>Premium</h3>
+                  <div style={{ fontSize: '1.75rem', fontWeight: '900', margin: '16px 0' }}>₹11,800</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.8rem', color: '#cbd5e1', flex: 1 }}>
+                  <div>✓ 5 post (2 standard, 1 carrousal) / week</div>
+                  <div>✓ graphics regenaration 3 times</div>
+                  <div>✓ 30 days Ad campaign</div>
+                  <div>✓ 24X7 support</div>
+                  <div>✓ Visible growth in sales in 1 week</div>
+                  <div style={{ borderTop: '1px dashed #475569', paddingTop: '10px', marginTop: '4px', fontSize: '0.75rem', color: '#94a3b8' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span>Ad Budget:</span>
+                      <strong style={{ color: '#e2e8f0' }}>₹7,080</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span>API Cost:</span>
+                      <strong style={{ color: '#e2e8f0' }}>₹1,227.2</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #334155', paddingTop: '4px', marginTop: '4px' }}>
+                      <span>Total cost:</span>
+                      <strong style={{ color: '#818cf8' }}>₹8,307.2</strong>
+                    </div>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => { addToast('Premium Option Selected', 'Premium plan selected. Connecting to payment portal...', 'info'); setIsPostingModalOpen(false); }}
+                  style={{ width: '100%', padding: '10px', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                >
+                  Choose Premium (₹11,800)
+                </button>
+              </div>
+
+              {/* Tile 4: Customized */}
+              <div style={{ background: 'rgba(30, 41, 59, 0.4)', border: '1px solid #334155', borderRadius: '16px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
+                <div>
+                  <span style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#818cf8', display: 'block', textTransform: 'uppercase', marginBottom: '4px' }}>Flexible Budget</span>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', margin: '0 0 12px 0' }}>Customized</h3>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: '16px 0', color: '#94a3b8' }}>Contact us</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.8rem', color: '#cbd5e1', flex: 1 }}>
+                  <p style={{ margin: 0, lineHeight: 1.5 }}>
+                    want to create a customized plan as per your budget then please contact us
+                  </p>
+                </div>
+                <button 
+                  onClick={() => { addToast('Request Submitted', 'Our customization team will reach out to you shortly.', 'success'); setIsPostingModalOpen(false); }}
+                  style={{ width: '100%', padding: '10px', background: '#334155', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                >
+                  Contact Us
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
