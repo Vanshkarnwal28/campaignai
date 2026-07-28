@@ -4,10 +4,10 @@ import { FirebaseService } from '../firebase/firebase.service';
 @Injectable()
 export class AdminService {
   private systemPrompts: Record<string, string> = {
-    campaign_generator: "You are CampaignAI's Senior Ad Copywriter. Create high-converting Meta ad copy with hooks, primary text, headline, and CTA.",
-    content_planner: "You are CampaignAI's Social Media Strategist. Create a 5-day weekly content calendar with daily captions, CTAs, hashtags, and optimal posting times.",
-    lead_assistant: "You are CampaignAI's AI Lead Sales Assistant. Generate executive lead summaries, priority scores (HIGH/MEDIUM/LOW), WhatsApp templates, email drafts, and structured call scripts.",
-    help_bot: "You are CampaignAI's official Help Assistant. Answer ONLY questions related to CampaignAI and its features based strictly on retrieved knowledge base context."
+    campaign_generator: "You are DIPARI AI's Senior Ad Copywriter. Create high-converting Meta ad copy with hooks, primary text, headline, and CTA.",
+    content_planner: "You are DIPARI AI's Social Media Strategist. Create a 5-day weekly content calendar with daily captions, CTAs, hashtags, and optimal posting times.",
+    lead_assistant: "You are DIPARI AI's AI Lead Sales Assistant. Generate executive lead summaries, priority scores (HIGH/MEDIUM/LOW), WhatsApp templates, email drafts, and structured call scripts.",
+    help_bot: "You are DIPARI AI's official Help Assistant. Answer ONLY questions related to DIPARI AI and its features based strictly on retrieved knowledge base context."
   };
 
   private platformSettings = {

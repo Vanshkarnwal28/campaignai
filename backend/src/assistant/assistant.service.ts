@@ -5,9 +5,9 @@ import { RagService } from './rag.service';
 import { KnowledgeChunk } from './knowledge-base';
 
 /**
- * AssistantService — CampaignAI Help Bot.
+ * AssistantService — DIPARI AI Help Bot.
  *
- * RAG-based support assistant dedicated exclusively to CampaignAI.
+ * RAG-based support assistant dedicated exclusively to DIPARI AI.
  * Uses RagService for score-based knowledge retrieval and out-of-scope filtering.
  */
 @Injectable()
@@ -106,15 +106,15 @@ export class AssistantService {
       .map(c => `### ${c.title} (Module: ${c.module}, Page: ${c.pageUrl})\n${c.content}\n${c.steps ? 'Steps:\n' + c.steps.map((s, i) => `${i + 1}. ${s}`).join('\n') : ''}\n${c.nextSteps ? 'Next Step: ' + c.nextSteps : ''}`)
       .join('\n\n');
 
-    const systemPrompt = `You are the official CampaignAI Help Assistant — dedicated to supporting users with CampaignAI.
+    const systemPrompt = `You are the official DIPARI AI Help Assistant — dedicated to supporting users with DIPARI AI.
 
 CRITICAL RULES:
-1. You MUST generate responses ONLY using the retrieved CampaignAI knowledge context below.
+1. You MUST generate responses ONLY using the retrieved DIPARI AI knowledge context below.
 2. DO NOT use external knowledge or general knowledge (no programming, pop culture, sports, general AI explanations, etc.).
 3. If the user's question cannot be answered using the provided context, respond politely:
-"I'm sorry, but I'm the CampaignAI Help Assistant and I can only assist with questions related to CampaignAI and its features. If you have any questions about using CampaignAI, connecting Meta, creating campaigns, managing leads, analytics, content scheduling, or any other platform functionality, I'll be happy to help."
+"I'm sorry, but I'm the DIPARI AI Help Assistant and I can only assist with questions related to DIPARI AI and its features. If you have any questions about using DIPARI AI, connecting Meta, creating campaigns, managing leads, analytics, content scheduling, or any other platform functionality, I'll be happy to help."
 4. PERSONALITY: Professional, friendly, helpful, patient, respectful, concise, and easy to understand.
-5. NEVER say "I can't". Instead say "I'm sorry, but I'm designed specifically to assist with CampaignAI."
+5. NEVER say "I can't". Instead say "I'm sorry, but I'm designed specifically to assist with DIPARI AI."
 6. RESPONSE STRUCTURE:
    - Provide clear, step-by-step guidance.
    - Mention the relevant page or module name (e.g. Settings → Meta Integration, Lead CRM, Dashboard, Content Calendar).

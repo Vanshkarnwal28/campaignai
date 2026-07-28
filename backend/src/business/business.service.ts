@@ -273,7 +273,7 @@ export class BusinessService {
     if (convo.completed) {
       return {
         conversationId: convo.id,
-        reply: 'Your onboarding is already complete! Your business profile has been set up. Head to the Dashboard to start using CampaignAI.',
+        reply: 'Your onboarding is already complete! Your business profile has been set up. Head to the Dashboard to start using DIPARI AI.',
         completed: true,
         progress: 100,
         collectedData: convo.collectedData || {},
@@ -306,7 +306,7 @@ export class BusinessService {
           .join('\n');
 
         reply = await this.openRouter.chat(
-          `You are CampaignAI, an AI marketing assistant. The user just completed business onboarding. Summarize their business profile and express excitement about helping them succeed. Keep it concise (3-4 sentences). Note that the conversation was conducted in ${userLang}. If Hinglish, write in Hindi using English/Latin script.`,
+          `You are DIPARI AI, an AI marketing assistant. The user just completed business onboarding. Summarize their business profile and express excitement about helping them succeed. Keep it concise (3-4 sentences). Note that the conversation was conducted in ${userLang}. If Hinglish, write in Hindi using English/Latin script.`,
           `Business profile completed:\n${contextSummary}\n\nGenerate a brief, enthusiastic completion message.`,
           0.7,
           256,
@@ -341,7 +341,7 @@ export class BusinessService {
           .join('\n');
 
         reply = await this.openRouter.chat(
-          `You are CampaignAI, a friendly AI marketing assistant conducting business onboarding. You just received the user's answer. Briefly acknowledge their answer (1 short sentence), then smoothly transition to the next question. Do NOT repeat the exact question word for word — rephrase it naturally. The next field to ask about is: "${translatedQuestion}". Be warm and conversational. Note that the conversation must be conducted in ${userLang}. If the language is Hinglish, write in Hindi using English/Latin script.`,
+          `You are DIPARI AI, a friendly AI marketing assistant conducting business onboarding. You just received the user's answer. Briefly acknowledge their answer (1 short sentence), then smoothly transition to the next question. Do NOT repeat the exact question word for word — rephrase it naturally. The next field to ask about is: "${translatedQuestion}". Be warm and conversational. Note that the conversation must be conducted in ${userLang}. If the language is Hinglish, write in Hindi using English/Latin script.`,
           `Previous answers:\n${previousContext}\n\nUser just answered: "${userMessage}"\n\nAcknowledge and ask about: ${translatedQuestion}`,
           0.7,
           200,
@@ -400,17 +400,17 @@ export class BusinessService {
 
     try {
       greeting = await this.openRouter.chat(
-        `You are CampaignAI, a friendly AI marketing onboarding assistant. Greet the user warmly and ask them the first onboarding question in a natural, conversational way. The conversation must be conducted in ${userLang}. If the language is Hinglish, write in Hindi using English/Latin script.`,
+        `You are DIPARI AI, a friendly AI marketing onboarding assistant. Greet the user warmly and ask them the first onboarding question in a natural, conversational way. The conversation must be conducted in ${userLang}. If the language is Hinglish, write in Hindi using English/Latin script.`,
         `Generate a brief greeting (2-3 sentences) and then ask: "${translatedQuestion}"`,
         0.7,
         200,
       );
     } catch {
-      greeting = `Welcome to CampaignAI! 🚀 I'm your AI Marketing Manager. Let me learn about your business so I can create the perfect marketing strategy. ${translatedQuestion}`;
+      greeting = `Welcome to DIPARI AI! 🚀 I'm your AI Marketing Manager. Let me learn about your business so I can create the perfect marketing strategy. ${translatedQuestion}`;
     }
 
     if (!greeting) {
-      greeting = `Welcome to CampaignAI! 🚀 Let's get your business set up. ${translatedQuestion}`;
+      greeting = `Welcome to DIPARI AI! 🚀 Let's get your business set up. ${translatedQuestion}`;
     }
 
     // Create or reset conversation

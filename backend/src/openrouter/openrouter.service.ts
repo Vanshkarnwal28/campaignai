@@ -71,7 +71,7 @@ export class OpenRouterService {
             'Authorization': `Bearer ${this.apiKey}`,
             'Content-Type': 'application/json',
             'HTTP-Referer': 'https://campaignai.app',
-            'X-Title': 'CampaignAI',
+            'X-Title': 'DIPARI AI',
           },
         },
       );
@@ -101,7 +101,7 @@ export class OpenRouterService {
                 'Authorization': `Bearer ${this.apiKey}`,
                 'Content-Type': 'application/json',
                 'HTTP-Referer': 'https://campaignai.app',
-                'X-Title': 'CampaignAI',
+                'X-Title': 'DIPARI AI',
               },
             },
           );

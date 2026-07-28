@@ -76,7 +76,7 @@ export default function App() {
   // Chat Assistant sliding drawer state
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<any[]>([
-    { role: 'model', content: "Hello! 👋 I am the official CampaignAI Help Assistant. How can I help you with CampaignAI today? Ask me about account setup, Meta integration, creating campaigns, content scheduling, lead CRM, analytics, or platform features!" }
+    { role: 'model', content: "Hello! 👋 I am the official DIPARI AI Help Assistant. How can I help you with DIPARI AI today? Ask me about account setup, Meta integration, creating campaigns, content scheduling, lead CRM, analytics, or platform features!" }
   ]);
   const [assistantInput, setAssistantInput] = useState('');
   const [currentConvoId, setCurrentConvoId] = useState<string | undefined>(undefined);
@@ -653,11 +653,11 @@ export default function App() {
                       </div>
                       <div className="glass-panel" style={{ padding: 20 }}>
                         <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>MOCK ACQUISITION CPA</div>
-                        <div style={{ fontSize: '2rem', fontWeight: 700, marginTop: 4 }}>$12.40</div>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, marginTop: 4 }}>₹12.40</div>
                       </div>
                       <div className="glass-panel" style={{ padding: 20 }}>
                         <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>MOCK SPEND RATIO</div>
-                        <div style={{ fontSize: '2rem', fontWeight: 700, marginTop: 4 }}>$4,821.50</div>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, marginTop: 4 }}>₹4,821.50</div>
                       </div>
                     </div>
                     {/* Fake line chart */}
@@ -684,30 +684,99 @@ export default function App() {
           <section id="pricing" style={{ padding: '80px 8%', textAlign: 'center', borderTop: '1px solid var(--color-border)' }}>
             <h2 style={{ fontSize: '2.5rem', fontFamily: 'var(--font-display)', marginBottom: 12 }}>Transparent Scaling Plans</h2>
             <p style={{ color: 'var(--color-text-muted)', marginBottom: 60 }}>Choose the strategy that aligns with your ad accounts budget caps.</p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 32, maxWidth: 1000, margin: '0 auto' }}>
-              <div className="glass-panel" style={{ padding: 40, textAlign: 'left' }}>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700 }}>Starter</div>
-                <div style={{ fontSize: '2.5rem', fontWeight: 800, margin: '20px 0' }}>$29<span style={{ fontSize: '1rem', fontWeight: 400 }}>/mo</span></div>
-                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 40, fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
-                  <li>✓ Monthly ad spend up to $2,000</li>
-                  <li>✓ SWOT Competitor Profiling</li>
-                  <li>✓ Weekly Performance Updates</li>
-                </ul>
-                <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Get Started</button>
-              </div>
-              <div className="glass-panel" style={{ padding: 40, textAlign: 'left', border: '1px solid var(--color-primary)', boxShadow: '0 0 40px rgba(99, 102, 241, 0.15)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: '1.2rem', fontWeight: 700 }}>Professional</span>
-                  <span style={{ background: 'var(--color-primary)', fontSize: '0.75rem', padding: '4px 10px', borderRadius: 99 }}>POPULAR</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 24, maxWidth: 1200, margin: '0 auto' }}>
+              {/* Tile 1: Basic */}
+              <div className="glass-panel" style={{ padding: 30, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--color-primary)', textTransform: 'uppercase', marginBottom: 4 }}>Free Plan</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>Basic (Free 7 days trial)</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, margin: '16px 0' }}>Free</div>
                 </div>
-                <div style={{ fontSize: '2.5rem', fontWeight: 800, margin: '20px 0' }}>$99<span style={{ fontSize: '1rem', fontWeight: 400 }}>/mo</span></div>
-                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 40, fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
-                  <li>✓ Monthly ad spend up to $10,000</li>
-                  <li>✓ Hourly AI Bid Adjustments</li>
-                  <li>✓ Instant Copyset generation</li>
-                  <li>✓ Slack / Email alerts sync</li>
+                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20, fontSize: '0.85rem', color: 'var(--color-text-muted)', flex: 1, padding: 0 }}>
+                  <li>✓ 3 post (2 standard, 1 carrousal) / week</li>
+                  <li>✓ graphics regeneration 3 times</li>
+                  <li>✓ No Ad campaign</li>
+                  <li>✓ Experience the next generation Marketing</li>
                 </ul>
-                <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Start Pro Plan</button>
+                <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Start Free Trial</button>
+              </div>
+
+              {/* Tile 2: Advance */}
+              <div className="glass-panel" style={{ padding: 30, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 20, border: '1px solid var(--color-primary)', boxShadow: '0 0 30px rgba(99, 102, 241, 0.1)' }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--color-primary)', textTransform: 'uppercase' }}>Pro Campaign</span>
+                    <span style={{ background: 'var(--color-primary)', fontSize: '0.7rem', padding: '3px 8px', borderRadius: 99, color: 'white', fontWeight: 'bold' }}>POPULAR</span>
+                  </div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: 4 }}>Advance</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, margin: '16px 0', color: 'var(--color-primary-light)' }}>₹5,900</div>
+                </div>
+                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20, fontSize: '0.85rem', color: 'var(--color-text-muted)', flex: 1, padding: 0 }}>
+                  <li>✓ 3 post (2 standard, 1 carrousal) / week</li>
+                  <li>✓ graphics regeneration 3 times</li>
+                  <li>✓ 15 days Ad campaign</li>
+                  <li>✓ 24X7 support</li>
+                  <li>✓ Visible growth in sales in 1 week</li>
+                  <li style={{ borderTop: '1px dashed var(--color-border)', paddingTop: 10, marginTop: 4, fontSize: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <span>Ad Budget:</span>
+                      <strong>₹3,540</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <span>API Cost:</span>
+                      <strong>₹613.6</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-border)', paddingTop: 2, marginTop: 2 }}>
+                      <span>Total cost:</span>
+                      <strong style={{ color: 'var(--color-primary)' }}>₹4,153.6</strong>
+                    </div>
+                  </li>
+                </ul>
+                <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Choose Advance</button>
+              </div>
+
+              {/* Tile 3: Premium */}
+              <div className="glass-panel" style={{ padding: 30, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--color-primary)', textTransform: 'uppercase', marginBottom: 4 }}>Enterprise Scale</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>Premium</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, margin: '16px 0' }}>₹11,800</div>
+                </div>
+                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20, fontSize: '0.85rem', color: 'var(--color-text-muted)', flex: 1, padding: 0 }}>
+                  <li>✓ 5 post (2 standard, 1 carrousal) / week</li>
+                  <li>✓ graphics regeneration 3 times</li>
+                  <li>✓ 30 days Ad campaign</li>
+                  <li>✓ 24X7 support</li>
+                  <li>✓ Visible growth in sales in 1 week</li>
+                  <li style={{ borderTop: '1px dashed var(--color-border)', paddingTop: 10, marginTop: 4, fontSize: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <span>Ad Budget:</span>
+                      <strong>₹7,080</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                      <span>API Cost:</span>
+                      <strong>₹1,227.2</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-border)', paddingTop: 2, marginTop: 2 }}>
+                      <span>Total cost:</span>
+                      <strong style={{ color: 'var(--color-primary)' }}>₹8,307.2</strong>
+                    </div>
+                  </li>
+                </ul>
+                <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: 'var(--color-secondary)' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Choose Premium</button>
+              </div>
+
+              {/* Tile 4: Customized */}
+              <div className="glass-panel" style={{ padding: 30, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 20 }}>
+                <div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--color-primary)', textTransform: 'uppercase', marginBottom: 4 }}>Flexible Budget</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>Customized</div>
+                  <div style={{ fontSize: '1.75rem', fontWeight: 800, margin: '16px 0' }}>Contact us</div>
+                </div>
+                <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20, fontSize: '0.85rem', color: 'var(--color-text-muted)', flex: 1, padding: 0 }}>
+                  <li style={{ lineHeight: 1.5 }}>want to create a customized plan as per your budget then please contact us</li>
+                </ul>
+                <button className="btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Contact Us</button>
               </div>
             </div>
           </section>
@@ -729,7 +798,7 @@ export default function App() {
 
           {/* Footer */}
           <footer style={{ borderTop: '1px solid var(--color-border)', padding: '40px 8%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
-            <span>© 2026 CampaignAI Technologies. All rights reserved. Made for enterprise marketing automation.</span>
+            <span>© 2026 DIPARI AI Technologies. All rights reserved. Made for enterprise marketing automation.</span>
             <button
               onClick={() => setCurrentPage('auth')}
               style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.5, textDecoration: 'underline' }}
@@ -767,7 +836,10 @@ export default function App() {
               return;
             }
             if (!syncedUser.onboardingCompleted) {
-              await initOnboarding(syncedUser.businessId);
+              const qList = await api.business.getQuestions();
+              setOnboardingQuestions(qList);
+              setChatbotMessages([{ role: 'model', content: `Hello ${syncedUser.name}! I am the CampaignAI Business Planner. Let's design your high-converting marketing strategy. ${qList[0]}` }]);
+              setCurrentPage('onboarding');
             } else {
               setCurrentPage('dashboard');
             }
@@ -791,7 +863,7 @@ export default function App() {
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 40 }}>
                 <span style={{ fontSize: '1.4rem' }}>🚀</span>
-                <span style={{ fontWeight: 800 }}>CampaignAI</span>
+                <span style={{ fontWeight: 800 }}>DIPARI AI</span>
               </div>
               <h3 style={{ fontSize: '1.2rem', marginBottom: 12 }}>Onboarding Chatbot</h3>
               <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', lineHeight: 1.5 }}>
@@ -893,7 +965,7 @@ export default function App() {
                 {!sidebarCollapsed && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: '1.4rem' }}>🚀</span>
-                    <span style={{ fontWeight: 800, fontFamily: 'var(--font-display)' }}>CampaignAI</span>
+                    <span style={{ fontWeight: 800, fontFamily: 'var(--font-display)' }}>DIPARI AI</span>
                   </div>
                 )}
                 <button style={{
@@ -1125,7 +1197,7 @@ export default function App() {
                       <DollarSign size={14} />
                     </div>
                     <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0' }}>
-                      ${metrics.totalSpend?.toLocaleString(undefined, { maximumFractionDigits: 2 }) || '0.00'}
+                      ₹{metrics.totalSpend?.toLocaleString(undefined, { maximumFractionDigits: 2 }) || '0.00'}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--color-success)' }}>● Sync Active</div>
                   </div>
@@ -1145,7 +1217,7 @@ export default function App() {
                       <MousePointerClick size={14} />
                     </div>
                     <div style={{ fontSize: '1.8rem', fontWeight: 700, margin: '8px 0' }}>
-                      ${metrics.cpc?.toFixed(2) || '0.00'}
+                      ₹{metrics.cpc?.toFixed(2) || '0.00'}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--color-success)' }}>-8% cost reduction</div>
                   </div>
@@ -1371,7 +1443,7 @@ export default function App() {
                               </span>
                             </td>
                             <td style={{ padding: 20 }}>{c.objective}</td>
-                            <td style={{ padding: 20, fontWeight: 500 }}>${c.dailyBudget}/day</td>
+                            <td style={{ padding: 20, fontWeight: 500 }}>₹{c.dailyBudget}/day</td>
                             <td style={{ padding: 20, color: 'var(--color-accent)', fontWeight: 600 }}>{c.healthScore}%</td>
                             <td style={{ padding: 20, color: 'var(--color-text-muted)', fontFamily: 'monospace' }}>{c.metaCampaignId}</td>
                             <td style={{ padding: 20 }}>
@@ -1679,7 +1751,7 @@ export default function App() {
                 }}>
                   <Cpu size={18} style={{ color: 'var(--color-primary)' }} />
                   <div>
-                    <h4 style={{ fontSize: '0.9rem' }}>CampaignAI Help Bot</h4>
+                    <h4 style={{ fontSize: '0.9rem' }}>DIPARI AI Help Bot</h4>
                     <div style={{ fontSize: '0.7rem', color: 'var(--color-success)' }}>Official Support Assistant</div>
                   </div>
                 </div>
@@ -1704,7 +1776,7 @@ export default function App() {
 
                 {/* Input area */}
                 <form onSubmit={sendAssistantMessage} style={{ padding: 16, borderTop: '1px solid var(--color-border)', display: 'flex', gap: 10 }}>
-                  <input className="form-input" placeholder="Ask a question about CampaignAI..." value={assistantInput} onChange={e => setAssistantInput(e.target.value)} style={{ padding: 10, fontSize: '0.8rem' }} />
+                  <input className="form-input" placeholder="Ask a question about DIPARI AI..." value={assistantInput} onChange={e => setAssistantInput(e.target.value)} style={{ padding: 10, fontSize: '0.8rem' }} />
                   <button className="btn-primary" type="submit" style={{ padding: 10 }}><Send size={14} /></button>
                 </form>
               </div>
