@@ -597,7 +597,7 @@ export default function App() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: '1.8rem' }}>🚀</span>
               <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.4rem', letterSpacing: '-0.04em' }}>
-                Campaign<span className="text-gradient">AI</span>
+                DIPARI <span className="text-gradient">AI</span>
               </span>
             </div>
             <nav style={{ display: 'flex', gap: 32, fontWeight: 500, fontSize: '0.95rem' }}>
