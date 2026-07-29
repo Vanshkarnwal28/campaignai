@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { FirebaseService } from '../firebase/firebase.service';
 import { IntegrationsService } from '../integrations/integrations.service';
-import { OpenRouterService } from '../openrouter/openrouter.service';
+import { AiService } from '../ai/ai.service';
+import { BusinessIntelligenceService } from '../business/business-intelligence.service';
 
 @Injectable()
 export class CampaignsService {
@@ -10,7 +11,8 @@ export class CampaignsService {
   constructor(
     private readonly firebase: FirebaseService,
     private readonly integrations: IntegrationsService,
-    private readonly openRouter: OpenRouterService,
+    private readonly aiService: AiService,
+    private readonly businessIntelligence: BusinessIntelligenceService,
   ) {}
 
 
@@ -31,15 +33,16 @@ export class CampaignsService {
       throw new NotFoundException('Business workspace not found');
     }
 
-    const profile = await this.firebase.getBusinessProfile(businessId);
-    const industry = profile?.industry || 'Retail';
-    const audience = profile?.targetAudience || 'General Audience';
+    const context = await this.businessIntelligence.getBusinessContext(businessId);
+    const industry = context.industry || 'Retail';
+    const audience = context.targetAudience || 'General Audience';
 
     // 1. Generate creative via OpenRouter AI
     const aiCreative = await this.integrations.generateAdCreative(
       data.creativePrompt,
       industry,
       audience,
+      { USP: context.businessUSP, brandTone: context.brandTone, languages: context.languages },
     );
 
     // 2. Save Creative to Firestore
@@ -365,7 +368,7 @@ export class CampaignsService {
     const business = await this.firebase.getBusinessById(businessId);
     if (!business) throw new NotFoundException('Business not found');
 
-    const profile = await this.firebase.getBusinessProfile(businessId);
+    const profile = await this.businessIntelligence.getBusinessContext(businessId);
     const industry = profile?.industry || profile?.businessCategory || 'Retail';
     const audience = profile?.targetAudience || 'General Audience';
     const brandTone = profile?.brandTone || profile?.brandVoice || 'Professional';
@@ -381,7 +384,7 @@ export class CampaignsService {
     // AI-generate campaign strategy
     let aiStrategy: any = null;
     try {
-      aiStrategy = await this.openRouter.chatJson<any>(
+      aiStrategy = await this.aiService.chatJson<any>(
         'You are an expert Meta Ads campaign strategist. Generate complete campaign configurations.',
         `Generate a complete Meta Ads campaign for this business:
 
@@ -422,6 +425,7 @@ Return ONLY valid JSON:
 }`,
         0.7,
         3000,
+        'CampaignsService.generateFullCampaign',
       );
     } catch (err: any) {
       this.logger.warn(`AI campaign generation failed: ${err.message}`);
@@ -509,7 +513,7 @@ Return ONLY valid JSON:
    */
   async getAiRecommendations(businessId: string) {
     const campaigns = await this.firebase.getCampaignsByBusinessId(businessId);
-    const profile = await this.firebase.getBusinessProfile(businessId);
+    const profile = await this.businessIntelligence.getBusinessContext(businessId);
 
     if (campaigns.length === 0) {
       return [{
@@ -537,7 +541,7 @@ Return ONLY valid JSON:
 
     // Try AI-generated recommendations
     try {
-      const result = await this.openRouter.chatJson<any[]>(
+      const result = await this.aiService.chatJson<any[]>(
         'You are a Meta Ads optimization expert. Analyze campaign data and provide actionable recommendations.',
         `Analyze these campaign metrics and generate 3-5 optimization recommendations:
 
@@ -564,6 +568,7 @@ For each recommendation, provide:
 Return ONLY a valid JSON array.`,
         0.7,
         2048,
+        'CampaignsService.getAiRecommendations',
       );
 
       if (result && Array.isArray(result) && result.length > 0) {

@@ -1,14 +1,15 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { FirebaseService } from '../firebase/firebase.service';
-import { OpenRouterService } from '../openrouter/openrouter.service';
+import { AiService } from '../ai/ai.service';
 import { RagService } from './rag.service';
 import { KnowledgeChunk } from './knowledge-base';
+import { PromptBuilderService } from '../prompt-builder/prompt-builder.service';
 
 /**
  * AssistantService — DIPARI AI Help Bot.
  *
  * RAG-based support assistant dedicated exclusively to DIPARI AI.
- * Uses RagService for score-based knowledge retrieval and out-of-scope filtering.
+ * Consumes business context via PromptBuilderService.
  */
 @Injectable()
 export class AssistantService {
@@ -16,8 +17,9 @@ export class AssistantService {
 
   constructor(
     private readonly firebase: FirebaseService,
-    private readonly openRouter: OpenRouterService,
+    private readonly aiService: AiService,
     private readonly ragService: RagService,
+    private readonly promptBuilder: PromptBuilderService,
   ) {}
 
   async sendMessage(
@@ -59,8 +61,16 @@ export class AssistantService {
     } else if (ragResult.isOutOfScope) {
       aiResponse = this.ragService.getOutOfScopeResponse();
     } else {
-      // In-scope: generate answer using retrieved context
-      aiResponse = await this.generateRagResponse(message, messagesList, ragResult.chunks);
+      // Fetch business context via PromptBuilderService
+      let businessPrompt = '';
+      try {
+        if (businessId) {
+          businessPrompt = await this.promptBuilder.buildBusinessPrompt(businessId);
+        }
+      } catch { /* fallback if no business profile yet */ }
+
+      // In-scope: generate answer using retrieved context & business context
+      aiResponse = await this.generateRagResponse(message, messagesList, ragResult.chunks, businessPrompt);
     }
 
     // Append AI reply
@@ -95,12 +105,13 @@ export class AssistantService {
 
   /**
    * Generate RAG response via OpenRouter with strict prompt constraints,
-   * falling back to deterministic chunk-based answer if AI service is offline.
+   * incorporating business context via PromptBuilderService.
    */
   private async generateRagResponse(
     userPrompt: string,
     history: any[],
     chunks: KnowledgeChunk[],
+    businessPromptContext = '',
   ): Promise<string> {
     const formattedContext = chunks
       .map(c => `### ${c.title} (Module: ${c.module}, Page: ${c.pageUrl})\n${c.content}\n${c.steps ? 'Steps:\n' + c.steps.map((s, i) => `${i + 1}. ${s}`).join('\n') : ''}\n${c.nextSteps ? 'Next Step: ' + c.nextSteps : ''}`)
@@ -108,7 +119,7 @@ export class AssistantService {
 
     const systemPrompt = `You are the official DIPARI AI Help Assistant — dedicated to supporting users with DIPARI AI.
 
-CRITICAL RULES:
+${businessPromptContext ? businessPromptContext + '\n\n' : ''}CRITICAL RULES:
 1. You MUST generate responses ONLY using the retrieved DIPARI AI knowledge context below.
 2. DO NOT use external knowledge or general knowledge (no programming, pop culture, sports, general AI explanations, etc.).
 3. If the user's question cannot be answered using the provided context, respond politely:
@@ -130,7 +141,7 @@ ${formattedContext}`;
     const fullPrompt = `Previous conversation:\n${contextMessages}\n\nUser Question: ${userPrompt}\n\nProvide a step-by-step response based strictly on the retrieved context above.`;
 
     try {
-      const response = await this.openRouter.chat(systemPrompt, fullPrompt, 0.4, 512);
+      const response = await this.aiService.chat(systemPrompt, fullPrompt, 0.4, 512, 'AssistantService.generateRagResponse');
       if (response && response.trim()) {
         let cleanResponse = response.trim();
         cleanResponse = cleanResponse.replace(/^(User Safety|Safety Rating|Thinking|Reasoning):.*?\n+/gi, '').trim();
@@ -139,7 +150,7 @@ ${formattedContext}`;
         }
       }
     } catch (err) {
-      this.logger.warn('OpenRouter API unavailable for Help Bot RAG, using structured chunk fallback: ' + (err as any)?.message);
+      this.logger.warn('AI service unavailable for Help Bot RAG, using structured chunk fallback: ' + (err as any)?.message);
     }
 
     // Deterministic fallback response directly from top retrieved chunk

@@ -1,9 +1,9 @@
 import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { FirebaseService } from '../firebase/firebase.service';
 import { IntegrationsService } from '../integrations/integrations.service';
-import { OpenRouterService } from '../openrouter/openrouter.service';
-
+import { AiService } from '../ai/ai.service';
 import { PaymentService } from '../payment/payment.service';
+import { BusinessIntelligenceService } from './business-intelligence.service';
 
 /**
  * BusinessService — Phase 1: AI Business Onboarding Chatbot.
@@ -18,8 +18,9 @@ export class BusinessService {
   constructor(
     private readonly firebase: FirebaseService,
     private readonly integrations: IntegrationsService,
-    private readonly openRouter: OpenRouterService,
+    private readonly aiService: AiService,
     private readonly paymentService: PaymentService,
+    private readonly businessIntelligence: BusinessIntelligenceService,
   ) {}
 
   /** The 14 structured onboarding fields */
@@ -39,6 +40,102 @@ export class BusinessService {
     { key: 'languages', question: 'What languages should your marketing content be in? (e.g., English, Hindi, Spanish, or multiple)' },
     { key: 'businessUSP', question: 'What is your business\'s Unique Selling Proposition (USP)? What makes you different from competitors?' },
   ];
+
+  /** Validate user inputs to prevent empty, greetings, gibberish, or invalid entries */
+  private validateAnswer(fieldKey: string, rawValue: string): { valid: boolean; reason?: string } {
+    const val = (rawValue || '').trim();
+    if (!val) {
+      return { valid: false, reason: 'Your answer cannot be empty. Please provide a response.' };
+    }
+
+    const lowerVal = val.toLowerCase();
+
+    // Common greetings & conversational fillers (when typed as standalone answer)
+    const junkWords = new Set([
+      'hi', 'hello', 'hey', 'hlo', 'hei', 'hy', 'hola', 'namaste', 'sup', 'yo',
+      'i', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+      'idk', 'na', 'n/a', 'none', 'nothing', 'no', 'yes', 'ok', 'okay', 'pls', 'please', 'test', 'foo', 'bar',
+      'asdf', 'qwerty', 'hat eu', 'hate u', 'hat u', 'abc', 'xyz', 'something', 'anything', 'dk'
+    ]);
+
+    if (junkWords.has(lowerVal)) {
+      return {
+        valid: false,
+        reason: `"${val}" is not a valid response for this question. Please provide a valid answer.`,
+      };
+    }
+
+    // Gibberish & repetitive character mashing check
+    const isRepetitive = /^([a-zA-Z0-9])\1{2,}$/.test(val) || /^([a-zA-Z0-9]{2,4})\1{2,}$/i.test(val);
+    const isKeyboardMash = /^[qwertzuiopasdfghjklyxcvbnm]{4,}$/i.test(val) && !/[aeiouy]/i.test(val);
+    if (isRepetitive || isKeyboardMash) {
+      return {
+        valid: false,
+        reason: 'Please enter a clear and meaningful response instead of random letters.',
+      };
+    }
+
+    // Field-specific validation rules
+    switch (fieldKey) {
+      case 'businessName':
+        if (val.length < 2) {
+          return { valid: false, reason: 'Please enter a valid business name (e.g., "GlowSkin Organics" or "Acme Corp").' };
+        }
+        break;
+
+      case 'businessCategory':
+        if (val.length < 2) {
+          return { valid: false, reason: 'Please enter a valid category (e.g., E-commerce, SaaS, Fashion, Restaurant, Healthcare).' };
+        }
+        break;
+
+      case 'productsServices':
+        if (val.length < 3) {
+          return { valid: false, reason: 'Please describe your products or services (e.g., "Natural face serums and skincare products").' };
+        }
+        break;
+
+      case 'targetAudience':
+        if (val.length < 3) {
+          return { valid: false, reason: 'Please describe your target audience (e.g., "Women aged 20-45 interested in organic beauty").' };
+        }
+        break;
+
+      case 'monthlyBudget': {
+        const numericVal = parseFloat(val.replace(/[^0-9.]/g, ''));
+        if (isNaN(numericVal) || numericVal <= 0) {
+          return { valid: false, reason: 'Please specify a valid numeric monthly budget (e.g., 25000 or $5,000).' };
+        }
+        break;
+      }
+
+      case 'businessGoals':
+        if (val.length < 3) {
+          return { valid: false, reason: 'Please state your primary business goals (e.g., "Generate leads and increase online sales").' };
+        }
+        break;
+
+      case 'brandTone':
+        if (val.length < 3) {
+          return { valid: false, reason: 'Please specify your brand tone (e.g., Professional, Friendly, Bold, Luxury, Casual).' };
+        }
+        break;
+
+      case 'businessUSP':
+        if (val.length < 3) {
+          return { valid: false, reason: 'Please share your Unique Selling Proposition (e.g., "100% organic certified ingredients").' };
+        }
+        break;
+
+      default:
+        if (val.length < 2) {
+          return { valid: false, reason: 'Your answer is a bit too short. Please provide a little more detail.' };
+        }
+        break;
+    }
+
+    return { valid: true };
+  }
 
   private readonly translations: Record<string, string[]> = {
     english: [
@@ -287,11 +384,62 @@ export class BusinessService {
     const currentIndex = convo.currentFieldIndex || 0;
     const collectedData = convo.collectedData || {};
 
-    // Store user's answer for the current field
+    // Validate user response for the current field
     if (currentIndex < this.onboardingFields.length && userMessage.trim()) {
       const currentField = this.onboardingFields[currentIndex];
+      const validation = this.validateAnswer(currentField.key, userMessage);
+
+      if (!validation.valid) {
+        const translatedQuestion = this.getQuestionForField(currentField.key, userLang);
+        const warningMsg = `⚠️ ${validation.reason}\n\n👉 Please answer: ${translatedQuestion}`;
+
+        messages.push({ role: 'user', content: userMessage });
+        messages.push({ role: 'model', content: warningMsg });
+
+        await this.firebase.updateOnboardingConversation(convo.id, {
+          messages: JSON.stringify(messages),
+        });
+
+        const progress = Math.round((Object.keys(collectedData).length / this.onboardingFields.length) * 100);
+
+        return {
+          conversationId: convo.id,
+          reply: warningMsg,
+          completed: false,
+          progress,
+          currentField: currentField.key,
+          totalFields: this.onboardingFields.length,
+          answeredFields: Object.keys(collectedData).length,
+          collectedData,
+          validationError: validation.reason,
+        };
+      }
+
+      // Valid response — save into collectedData
       collectedData[currentField.key] = userMessage.trim();
       messages.push({ role: 'user', content: userMessage });
+
+      // PROGRESSIVE PROFILE AUTO-SAVE: Update Firestore businessProfiles immediately
+      await this.firebase.upsertBusinessProfile(businessId, {
+        businessName: collectedData.businessName || '',
+        businessCategory: collectedData.businessCategory || '',
+        industry: collectedData.businessCategory || '',
+        productsServices: collectedData.productsServices || '',
+        targetAudience: collectedData.targetAudience || '',
+        customerAgeGroup: collectedData.customerAgeGroup || '',
+        genderTarget: collectedData.genderTarget || '',
+        location: collectedData.location || '',
+        businessGoals: collectedData.businessGoals || '',
+        monthlyBudget: collectedData.monthlyBudget || '',
+        budgetLimit: parseFloat(collectedData.monthlyBudget) || 2000,
+        competitors: collectedData.competitors || '',
+        brandTone: collectedData.brandTone || '',
+        brandVoice: collectedData.brandTone || '',
+        postingFrequency: collectedData.postingFrequency || '',
+        languages: collectedData.languages || '',
+        businessUSP: collectedData.businessUSP || '',
+        onboardingAnswers: JSON.stringify(collectedData),
+      });
     }
 
     const nextIndex = currentIndex + 1;
@@ -299,33 +447,14 @@ export class BusinessService {
     let completed = false;
 
     if (nextIndex >= this.onboardingFields.length) {
-      // All fields collected — generate strategy and complete onboarding
+      // All 14 fields collected — generate Business Blueprint & complete onboarding
       completed = true;
 
-      // Generate AI acknowledgment
-      try {
-        const contextSummary = Object.entries(collectedData)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join('\n');
+      await this.completeOnboarding(businessId, collectedData);
 
-        reply = await this.openRouter.chat(
-          `You are DIPARI AI, an AI marketing assistant. The user just completed business onboarding. Summarize their business profile and express excitement about helping them succeed. Keep it concise (3-4 sentences). Note that the conversation was conducted in ${userLang}. If Hinglish, write in Hindi using English/Latin script.`,
-          `Business profile completed:\n${contextSummary}\n\nGenerate a brief, enthusiastic completion message.`,
-          0.7,
-          256,
-        );
-      } catch {
-        reply = `Excellent! Your business profile for "${collectedData.businessName}" is now complete. I've analyzed your industry, audience, and goals. Let's start creating winning marketing campaigns!`;
-      }
-
-      if (!reply) {
-        reply = `Your business profile for "${collectedData.businessName}" is complete! I'm ready to help you dominate your market. Head to the Dashboard to start creating campaigns.`;
-      }
+      reply = `🎉 Excellent! Your business profile for "${collectedData.businessName}" is complete! I have generated your structured AI Business Blueprint. Please review and approve your blueprint to launch your AI Marketing Dashboard!`;
 
       messages.push({ role: 'model', content: reply });
-
-      // Save profile and complete onboarding
-      await this.completeOnboarding(businessId, collectedData);
 
       await this.firebase.updateOnboardingConversation(convo.id, {
         currentFieldIndex: nextIndex,
@@ -343,11 +472,12 @@ export class BusinessService {
           .map(([k, v]) => `${k}: ${v}`)
           .join('\n');
 
-        reply = await this.openRouter.chat(
+        reply = await this.aiService.chat(
           `You are DIPARI AI, a friendly AI marketing assistant conducting business onboarding. You just received the user's answer. Briefly acknowledge their answer (1 short sentence), then smoothly transition to the next question. Do NOT repeat the exact question word for word — rephrase it naturally. The next field to ask about is: "${translatedQuestion}". Be warm and conversational. Note that the conversation must be conducted in ${userLang}. If the language is Hinglish, write in Hindi using English/Latin script.`,
           `Previous answers:\n${previousContext}\n\nUser just answered: "${userMessage}"\n\nAcknowledge and ask about: ${translatedQuestion}`,
           0.7,
           200,
+          'BusinessService.chatOnboarding',
         );
       } catch {
         reply = `Got it! ${translatedQuestion}`;
@@ -387,14 +517,39 @@ export class BusinessService {
     const user = await this.firebase.getUserById(business.ownerId);
     const userLang = user?.preferredLanguage || 'English';
 
-    // Check if already completed
+    // Check if conversation exists and resume if incomplete
     const existingConvo = await this.firebase.getOnboardingConversation(businessId) as any;
-    if (existingConvo?.completed) {
-      return {
-        reply: 'Your onboarding is already complete! Head to the Dashboard.',
-        completed: true,
-        progress: 100,
-      };
+    if (existingConvo) {
+      if (existingConvo.completed) {
+        return {
+          conversationId: existingConvo.id,
+          reply: 'Your onboarding is complete! Review your Business Blueprint to continue.',
+          completed: true,
+          progress: 100,
+        };
+      }
+
+      const existingMessages = JSON.parse(existingConvo.messages || '[]');
+      if (existingMessages.length > 0) {
+        const currentIndex = existingConvo.currentFieldIndex || 0;
+        const collectedData = existingConvo.collectedData || {};
+        const progress = Math.round((Object.keys(collectedData).length / this.onboardingFields.length) * 100);
+        const lastMsg = existingMessages[existingMessages.length - 1];
+
+        this.logger.log(`Resuming existing onboarding conversation ${existingConvo.id} for business ${businessId} at field index ${currentIndex}`);
+
+        return {
+          conversationId: existingConvo.id,
+          messages: existingMessages,
+          reply: lastMsg?.content || '',
+          completed: false,
+          progress,
+          currentField: this.onboardingFields[currentIndex]?.key,
+          totalFields: this.onboardingFields.length,
+          answeredFields: Object.keys(collectedData).length,
+          collectedData,
+        };
+      }
     }
 
     const firstField = this.onboardingFields[0];
@@ -402,11 +557,12 @@ export class BusinessService {
     let greeting = '';
 
     try {
-      greeting = await this.openRouter.chat(
+      greeting = await this.aiService.chat(
         `You are DIPARI AI, a friendly AI marketing onboarding assistant. Greet the user warmly and ask them the first onboarding question in a natural, conversational way. The conversation must be conducted in ${userLang}. If the language is Hinglish, write in Hindi using English/Latin script.`,
         `Generate a brief greeting (2-3 sentences) and then ask: "${translatedQuestion}"`,
         0.7,
         200,
+        'BusinessService.startOnboarding',
       );
     } catch {
       greeting = `Welcome to DIPARI AI! 🚀 I'm your AI Marketing Manager. Let me learn about your business so I can create the perfect marketing strategy. ${translatedQuestion}`;
@@ -416,25 +572,18 @@ export class BusinessService {
       greeting = `Welcome to DIPARI AI! 🚀 Let's get your business set up. ${translatedQuestion}`;
     }
 
-    // Create or reset conversation
-    if (existingConvo) {
-      await this.firebase.updateOnboardingConversation(existingConvo.id, {
-        currentFieldIndex: 0,
-        collectedData: {},
-        messages: JSON.stringify([{ role: 'model', content: greeting }]),
-        completed: false,
-      });
-    } else {
-      await this.firebase.createOnboardingConversation({
-        businessId,
-        currentFieldIndex: 0,
-        collectedData: {},
-        messages: JSON.stringify([{ role: 'model', content: greeting }]),
-        completed: false,
-      });
-    }
+    // Create initial conversation
+    const newConvo = await this.firebase.createOnboardingConversation({
+      businessId,
+      currentFieldIndex: 0,
+      collectedData: {},
+      messages: JSON.stringify([{ role: 'model', content: greeting }]),
+      completed: false,
+    });
 
     return {
+      conversationId: newConvo.id,
+      messages: [{ role: 'model', content: greeting }],
       reply: greeting,
       completed: false,
       progress: 0,
@@ -444,24 +593,14 @@ export class BusinessService {
     };
   }
 
-  /** Save profile + generate strategy after all 14 fields are collected */
+  /** Save profile + generate Business Blueprint after all 14 fields are collected */
   private async completeOnboarding(businessId: string, data: Record<string, any>) {
-    const business = await this.firebase.getBusinessById(businessId);
-    let preferredLanguage = 'English';
-    if (business && business.ownerId) {
-      const user = await this.firebase.getUserById(business.ownerId);
-      if (user && user.preferredLanguage) {
-        preferredLanguage = user.preferredLanguage;
-      }
+    let blueprintRecord: any = null;
+    try {
+      blueprintRecord = await this.businessIntelligence.generateBusinessBlueprint(businessId);
+    } catch (e: any) {
+      this.logger.warn(`AI Business Blueprint generation fallback used due to: ${e.message}`);
     }
-
-    // Generate SWOT + competitor analysis
-    const strategy = await this.integrations.generateBusinessStrategy(
-      data.businessCategory || 'General',
-      data.targetAudience || 'General Audience',
-      data.brandTone || 'Friendly',
-      { preferredLanguage },
-    );
 
     // Save full business profile to Firestore
     await this.firebase.upsertBusinessProfile(businessId, {
@@ -483,20 +622,26 @@ export class BusinessService {
       languages: data.languages,
       businessUSP: data.businessUSP,
       onboardingAnswers: JSON.stringify(data),
-      swotAnalysis: strategy.swot,
-      competitorAnalysis: strategy.competitors,
       onboardingCompleted: true,
+      blueprintApproved: false,
+    });
+
+    // Update business document
+    await this.firebase.updateBusiness(businessId, {
+      onboardingCompleted: true,
+      blueprintApproved: false,
+      updatedAt: new Date(),
     });
 
     // Welcome notification
     await this.firebase.createNotification({
       businessId,
-      title: 'Business Profile Complete',
-      message: `Onboarding completed for ${data.businessName}! SWOT analysis and competitor profiles are now active.`,
+      title: 'Business Blueprint Generated',
+      message: `Onboarding completed for ${data.businessName}! Your AI Business Blueprint is ready for review and approval.`,
       type: 'GENERAL',
     });
 
-    this.logger.log(`Onboarding completed for business ${businessId}: ${data.businessName}`);
+    this.logger.log(`Onboarding completed & blueprint generated for business ${businessId}: ${data.businessName}`);
   }
 
   /** Backward compatible: save answers from the old form-based onboarding */

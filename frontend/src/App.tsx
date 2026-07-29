@@ -44,6 +44,8 @@ import { ContentCalendar } from './components/ContentCalendar';
 import { SchedulerPanel } from './components/SchedulerPanel';
 import { ProfileScreen } from './components/ProfileScreen';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SmartInputControls } from './components/SmartInputControls';
+import { BusinessBlueprintReview } from './components/BusinessBlueprintReview';
 
 
 // --- Toast notification utility ---
@@ -57,7 +59,7 @@ interface ToastMsg {
 export default function App() {
   // Theme & Navigation State
   const [isLight, setIsLight] = useState(true);
-  const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'admin-login' | 'onboarding' | 'dashboard' | 'builder' | 'generator' | 'manager' | 'analytics' | 'support' | 'admin' | 'connect-meta' | 'calendar' | 'scheduler' | 'settings' | 'profile'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'admin-login' | 'onboarding' | 'blueprint' | 'dashboard' | 'builder' | 'generator' | 'manager' | 'analytics' | 'support' | 'admin' | 'connect-meta' | 'calendar' | 'scheduler' | 'settings' | 'profile'>('landing');
   // Auth state
   const [user, setUser] = useState<any>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -84,6 +86,8 @@ export default function App() {
   // Onboarding chatbot state
   const [chatbotMessages, setChatbotMessages] = useState<any[]>([]);
   const [chatbotInput, setChatbotInput] = useState('');
+  const [currentFieldKey, setCurrentFieldKey] = useState<string>('businessName');
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [isOnboardingCompleted, setIsOnboardingCompleted] = useState(false);
   const [isStrategyGenerating, setIsStrategyGenerating] = useState(false);
   const [onboardingProgress, setOnboardingProgress] = useState(0);
@@ -91,16 +95,27 @@ export default function App() {
   const initOnboarding = async (bId: string) => {
     try {
       console.log('[BusinessPlanner] Initializing onboarding chat for businessId:', bId);
-      console.log('[BusinessPlanner] API request started (startOnboarding)');
       const startRes = await api.business.startOnboarding(bId);
       console.log('[BusinessPlanner] API response received (startOnboarding):', startRes);
-      if (startRes && startRes.reply) {
-        setChatbotMessages([{ role: 'model', content: startRes.reply }]);
-        setOnboardingProgress(startRes.progress || 0);
+      if (startRes) {
+        if (Array.isArray(startRes.messages) && startRes.messages.length > 0) {
+          setChatbotMessages(startRes.messages);
+        } else if (startRes.reply) {
+          setChatbotMessages([{ role: 'model', content: startRes.reply }]);
+        }
+        if (typeof startRes.progress === 'number') {
+          setOnboardingProgress(startRes.progress);
+        }
+        if (startRes.currentField) {
+          setCurrentFieldKey(startRes.currentField);
+        }
         setIsOnboardingCompleted(startRes.completed || false);
+        if (startRes.completed) {
+          setCurrentPage('blueprint');
+          return;
+        }
       }
       setCurrentPage('onboarding');
-      console.log('[BusinessPlanner] UI updated from backend response');
     } catch (err: any) {
       console.error('[BusinessPlanner] Failed to start onboarding chat:', err);
       addToast('Onboarding Error', err.message || 'Failed to start AI Business Planner', 'alert');
@@ -384,8 +399,7 @@ export default function App() {
     if (!chatbotInput.trim() || isStrategyGenerating) return;
 
     const userMessage = chatbotInput.trim();
-    console.log('[BusinessPlanner] Send button clicked / Enter key pressed');
-    console.log('[BusinessPlanner] Handler executed. Input message:', userMessage);
+    setValidationError(null);
 
     // 1. Optimistically display user's message in UI
     setChatbotMessages(prev => [...prev, { role: 'user', content: userMessage }]);
@@ -393,26 +407,32 @@ export default function App() {
     setIsStrategyGenerating(true);
 
     try {
-      console.log('[BusinessPlanner] API request started');
       const response = await api.business.chatOnboarding(user?.businessId, userMessage);
-      console.log('[BusinessPlanner] API response received:', response);
 
       // 2. Display model response from backend
       if (response && response.reply) {
         setChatbotMessages(prev => [...prev, { role: 'model', content: response.reply }]);
       }
 
-      // 3. Update progress from backend response
-      if (typeof response.progress === 'number') {
+      // 3. Update field key and progress
+      if (response?.currentField) {
+        setCurrentFieldKey(response.currentField);
+      }
+      if (response?.validationError) {
+        setValidationError(response.validationError);
+      }
+      if (typeof response?.progress === 'number') {
         setOnboardingProgress(response.progress);
       }
 
-      // 4. Handle completion
-      if (response.completed) {
+      // 4. Handle completion -> Navigate to Blueprint review screen
+      if (response?.completed) {
         setIsOnboardingCompleted(true);
         setUser((prev: any) => (prev ? { ...prev, onboardingCompleted: true } : null));
+        setTimeout(() => {
+          setCurrentPage('blueprint');
+        }, 1200);
       }
-      console.log('[BusinessPlanner] UI updated from backend response');
     } catch (err: any) {
       console.error('[BusinessPlanner] Error in chatOnboarding:', err);
       addToast('Strategy Build Failed', err.message || 'Failed to communicate with Business Planner AI', 'alert');
@@ -836,10 +856,7 @@ export default function App() {
               return;
             }
             if (!syncedUser.onboardingCompleted) {
-              const qList = await api.business.getQuestions();
-              setOnboardingQuestions(qList);
-              setChatbotMessages([{ role: 'model', content: `Hello ${syncedUser.name}! I am the CampaignAI Business Planner. Let's design your high-converting marketing strategy. ${qList[0]}` }]);
-              setCurrentPage('onboarding');
+              await initOnboarding(syncedUser.businessId);
             } else {
               setCurrentPage('dashboard');
             }
@@ -915,33 +932,68 @@ export default function App() {
               )}
             </div>
 
-            {/* Input area */}
+            {/* Validation Banner */}
+            {validationError && (
+              <div style={{ margin: '0 10% 10px 10%', padding: '10px 16px', background: 'rgba(245, 158, 11, 0.15)', border: '1px solid #f59e0b', color: '#f59e0b', borderRadius: 8, fontSize: '0.85rem' }}>
+                ⚠️ {validationError}
+              </div>
+            )}
+
+            {/* Input area & Smart UI Controls */}
             <div style={{ padding: '20px 10% 40px 10%', borderTop: '1px solid var(--color-border)' }}>
               {!isOnboardingCompleted ? (
-                <form onSubmit={handleChatbotSend} style={{ display: 'flex', gap: 12 }}>
-                  <input
-                    className="form-input"
-                    placeholder="Provide your response..."
+                <div>
+                  <form onSubmit={handleChatbotSend} style={{ display: 'flex', gap: 12 }}>
+                    <input
+                      className="form-input"
+                      placeholder="Provide your response..."
+                      value={chatbotInput}
+                      onChange={e => {
+                        setChatbotInput(e.target.value);
+                        setValidationError(null);
+                      }}
+                    />
+                    <button className="btn-primary" type="submit" disabled={isStrategyGenerating}>
+                      <Send size={16} />
+                    </button>
+                  </form>
+
+                  {/* Smart UI Input Controls per field */}
+                  <SmartInputControls
+                    currentField={currentFieldKey}
                     value={chatbotInput}
-                    onChange={e => setChatbotInput(e.target.value)}
+                    onSelectOption={(opt) => {
+                      setChatbotInput(opt);
+                      setValidationError(null);
+                    }}
                   />
-                  <button className="btn-primary" type="submit">
-                    <Send size={16} />
-                  </button>
-                </form>
+                </div>
               ) : (
                 <div style={{ textAlign: 'center' }}>
-                  <button className="btn-primary" style={{ padding: '16px 40px' }} onClick={async () => {
-                    await loadDashboardData();
-                    setCurrentPage('dashboard');
+                  <button className="btn-primary" style={{ padding: '16px 40px' }} onClick={() => {
+                    setCurrentPage('blueprint');
                   }}>
-                    Open Performance Dashboard <ChevronRight size={16} />
+                    Review AI Business Blueprint <ChevronRight size={16} />
                   </button>
                 </div>
               )}
             </div>
           </div>
         </div>
+      )}
+
+      {/* --- 3.5 BUSINESS BLUEPRINT REVIEW & APPROVAL PAGE --- */}
+      {currentPage === 'blueprint' && (
+        <BusinessBlueprintReview
+          businessId={user?.businessId}
+          onApproved={async () => {
+            await loadDashboardData();
+            setCurrentPage('dashboard');
+          }}
+          onEditAnswers={() => {
+            setCurrentPage('onboarding');
+          }}
+        />
       )}
 
       {/* --- 4. ENTERPRISE APP SHELL: DASHBOARD & WORKSPACES --- */}

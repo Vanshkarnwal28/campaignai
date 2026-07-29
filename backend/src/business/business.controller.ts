@@ -1,24 +1,28 @@
 import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { BusinessService } from './business.service';
+import { BusinessIntelligenceService } from './business-intelligence.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
 @Controller('business')
 export class BusinessController {
-  constructor(private readonly businessService: BusinessService) {}
+  constructor(
+    private readonly businessService: BusinessService,
+    private readonly businessIntelligence: BusinessIntelligenceService,
+  ) {}
 
   @Get('onboarding/questions')
   getQuestions(@Query('lang') lang?: string) {
     return this.businessService.getQuestionsList(lang);
   }
 
-  /** Phase 1: Start a new onboarding conversation — returns first AI greeting */
+  /** Start or resume an onboarding conversation */
   @Post(':id/onboarding/start')
   async startOnboarding(@Param('id') id: string) {
     return this.businessService.startOnboarding(id);
   }
 
-  /** Phase 1: Send a chat message during onboarding — returns AI response + next question */
+  /** Send a chat message during onboarding */
   @Post(':id/onboarding/chat')
   async chatOnboarding(
     @Param('id') id: string,
@@ -31,6 +35,34 @@ export class BusinessController {
   @Post(':id/onboarding/submit')
   async submitAnswers(@Param('id') id: string, @Body() body: { answers: { q: string; a: string }[] }) {
     return this.businessService.saveAnswersAndGenerateStrategy(id, body.answers);
+  }
+
+  // ─── Business Intelligence Endpoints ────────────────────────────────────────
+
+  /** Fetch complete unified Business Context */
+  @Get(':id/context')
+  async getBusinessContext(@Param('id') id: string) {
+    return this.businessIntelligence.getBusinessContext(id);
+  }
+
+  /** Get active Business Blueprint & version history */
+  @Get(':id/blueprint')
+  async getBlueprint(@Param('id') id: string) {
+    const active = await this.businessIntelligence.getActiveBlueprint(id);
+    const history = await this.businessIntelligence.getBlueprintHistory(id);
+    return { active, history };
+  }
+
+  /** Approve Business Blueprint to unlock Performance Dashboard */
+  @Post(':id/blueprint/approve')
+  async approveBlueprint(@Param('id') id: string, @Body() body?: { blueprintId?: string }) {
+    return this.businessIntelligence.approveBlueprint(id, body?.blueprintId);
+  }
+
+  /** Regenerate Business Blueprint (creates new version v2, v3...) */
+  @Post(':id/blueprint/regenerate')
+  async regenerateBlueprint(@Param('id') id: string) {
+    return this.businessIntelligence.regenerateBlueprint(id);
   }
 
   @Get(':id/profile')

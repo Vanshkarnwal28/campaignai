@@ -1,13 +1,38 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  NotImplementedException,
+} from '@nestjs/common';
 import { FirebaseService } from '../firebase/firebase.service';
-import { OpenRouterService } from '../openrouter/openrouter.service';
+import { AiService } from '../ai/ai.service';
+import { BusinessIntelligenceService } from '../business/business-intelligence.service';
+import { PromptBuilderService } from '../prompt-builder/prompt-builder.service';
+
+export interface ContentStrategyData {
+  monthlyMarketingStrategy: string;
+  monthlyCampaignFocus: string;
+  recommendedPostingFrequency: string;
+  recommendedPlatforms: string[];
+  weeklyThemes: { weekNumber: number; theme: string; objective: string }[];
+}
+
+export interface CalendarFilterOptions {
+  page?: number;
+  limit?: number;
+  month?: string;
+  status?: string;
+  platform?: string;
+  category?: string;
+  search?: string;
+}
 
 /**
- * ContentService — Phase 2: AI Content Planner.
+ * ContentService — Handles Content Strategy, Calendar Generation, and Content Operations.
  *
- * Generates a weekly content calendar (Mon–Fri) using business profile data.
- * Each day includes: Caption, Headline, CTA, Hashtags, Post type,
- * Best posting time, Platform (Facebook/Instagram), Image prompt.
+ * All business context is sourced from BusinessIntelligenceService.getBusinessContext(businessId).
+ * All AI calls flow through PromptBuilderService → AiService → OpenRouter.
  */
 @Injectable()
 export class ContentService {
@@ -15,155 +40,344 @@ export class ContentService {
 
   constructor(
     private readonly firebase: FirebaseService,
-    private readonly openRouter: OpenRouterService,
+    private readonly aiService: AiService,
+    private readonly businessIntelligence: BusinessIntelligenceService,
+    private readonly promptBuilder: PromptBuilderService,
   ) {}
 
+  // ─── Validation Helpers ───────────────────────────────────────────────────
+
   /**
-   * Generate a full weekly content calendar using business profile context.
+   * Validates that the business workspace exists, business context is available,
+   * and the Business Blueprint is approved.
    */
-  async generateContentPlan(
-    businessId: string, 
-    selectedDays: string[], 
-    durationWeeks: number, 
-    industry?: string
-  ) {
-    this.logger.log(`Generating content plan. Business: ${businessId}, Days: ${selectedDays.join(', ')}, Weeks: ${durationWeeks}`);
+  async validateBusinessAndBlueprint(businessId: string) {
+    if (!businessId) {
+      throw new BadRequestException('Business ID is required');
+    }
 
-    let profile: any = null;
+    const business = await this.firebase.getBusinessById(businessId);
+    if (!business) {
+      throw new NotFoundException(`Business workspace ${businessId} not found`);
+    }
+
+    const context = await this.businessIntelligence.getBusinessContext(businessId);
+    if (!context) {
+      throw new NotFoundException(`Business context for ${businessId} not found`);
+    }
+
+    if (!context.blueprintApproved) {
+      throw new BadRequestException(
+        'Business Blueprint must be approved before generating content strategy or content calendar',
+      );
+    }
+
+    return { business, context };
+  }
+
+  /**
+   * Enforces valid status transitions for content calendar posts.
+   */
+  private validateStatusTransition(currentStatus: string, targetStatus: string) {
+    const validTransitions: Record<string, string[]> = {
+      DRAFT: ['APPROVED', 'REJECTED', 'DRAFT'],
+      REJECTED: ['DRAFT', 'APPROVED', 'REJECTED'],
+      APPROVED: ['SCHEDULED', 'DRAFT', 'REJECTED', 'APPROVED'],
+      SCHEDULED: ['PUBLISHED', 'FAILED', 'APPROVED', 'DRAFT', 'SCHEDULED'],
+      PUBLISHED: ['PUBLISHED'],
+      FAILED: ['DRAFT', 'SCHEDULED', 'FAILED'],
+    };
+
+    const allowed = validTransitions[currentStatus?.toUpperCase()] || [];
+    if (!allowed.includes(targetStatus.toUpperCase())) {
+      throw new BadRequestException(
+        `Invalid status transition from '${currentStatus}' to '${targetStatus}'`,
+      );
+    }
+  }
+
+  // ─── Step 1: Monthly Content Strategy ─────────────────────────────────────
+
+  /**
+   * Generates a structured 30-day Monthly Content Strategy using the approved Business Context.
+   */
+  async generateMonthlyStrategy(businessId: string): Promise<any> {
+    this.logger.log(`Generating Monthly Content Strategy for business: ${businessId}`);
+    await this.validateBusinessAndBlueprint(businessId);
+
+    const prompts = await this.promptBuilder.buildMonthlyStrategyPrompt(businessId);
+
+    let strategyData: ContentStrategyData | null = null;
     try {
-      profile = await this.firebase.getBusinessProfile(businessId);
-    } catch { /* profile may not exist yet */ }
+      const response = await this.aiService.generateStructuredJson<ContentStrategyData>(
+        prompts.systemPrompt,
+        prompts.userPrompt,
+        { temperature: 0.7, maxTokens: 2048 },
+        'ContentService.generateMonthlyStrategy',
+      );
+      strategyData = response.data;
+    } catch (err: any) {
+      this.logger.warn(`AI strategy generation error: ${err.message}`);
+    }
 
-    const businessContext = profile ? {
-      businessName: profile.businessName || profile.industry || 'the business',
-      industry: profile.industry || profile.businessCategory || industry || 'general',
-      targetAudience: profile.targetAudience || 'general audience',
-      brandTone: profile.brandTone || profile.brandVoice || 'professional',
-      productsServices: profile.productsServices || '',
-      businessUSP: profile.businessUSP || '',
-      languages: profile.languages || 'English',
-    } : {
-      businessName: 'the business',
-      industry: industry || 'general',
-      targetAudience: 'general audience',
-      brandTone: 'professional',
-      productsServices: '',
-      businessUSP: '',
-      languages: 'English',
-    };
+    // Fallback if AI call failed
+    if (!strategyData || !strategyData.weeklyThemes?.length) {
+      const context = await this.businessIntelligence.getBusinessContext(businessId);
+      strategyData = {
+        monthlyMarketingStrategy: `Drive brand authority and acquisition for ${context.businessName} across digital channels.`,
+        monthlyCampaignFocus: `${context.businessCategory || 'Product'} Launch & Brand Positioning`,
+        recommendedPostingFrequency: '5 posts per week (20 posts per month)',
+        recommendedPlatforms: ['Instagram', 'Facebook', 'LinkedIn'],
+        weeklyThemes: [
+          { weekNumber: 1, theme: 'Brand Foundations & Value Prop', objective: 'Educate audience on core offering & USP' },
+          { weekNumber: 2, theme: 'Customer Pain Points & Solutions', objective: 'Highlight key customer problems and how we solve them' },
+          { weekNumber: 3, theme: 'Social Proof & Community', objective: 'Build trust with testimonials, reviews, and behind-the-scenes' },
+          { weekNumber: 4, theme: 'Conversion & Promotional Offers', objective: 'Drive lead generation and direct sales with strong CTAs' },
+        ],
+      };
+    }
 
-    const entries: any[] = [];
-    const daysMap: Record<string, number> = {
-      'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3,
-      'Friday': 4, 'Saturday': 5, 'Sunday': 6
-    };
+    const savedStrategy = await this.firebase.upsertContentStrategy(businessId, strategyData);
+    this.logger.log(`Monthly Content Strategy saved (${savedStrategy.version}) for business: ${businessId}`);
+    return savedStrategy;
+  }
 
-    // Calculate start date (next Monday)
+  /**
+   * Fetches the current active Monthly Content Strategy for a business.
+   */
+  async getMonthlyStrategy(businessId: string) {
+    if (!businessId) throw new BadRequestException('Business ID is required');
+    const strategy = await this.firebase.getContentStrategyByBusinessId(businessId);
+    if (!strategy) {
+      throw new NotFoundException(`No monthly strategy found for business ${businessId}`);
+    }
+    return strategy;
+  }
+
+  // ─── Step 2 & 3: Monthly Content Calendar Generation ─────────────────────
+
+  /**
+   * Generates a complete 30-day (or multi-week) content calendar balancing all content types.
+   */
+  async generateMonthlyCalendar(
+    businessId: string,
+    options: { selectedDays?: string[]; durationWeeks?: number; industry?: string } = {},
+  ) {
+    const selectedDays = options.selectedDays || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const durationWeeks = options.durationWeeks || 4;
+
+    this.logger.log(
+      `Generating Content Calendar | Business: ${businessId} | Days: ${selectedDays.join(', ')} | Weeks: ${durationWeeks}`,
+    );
+
+    const { context } = await this.validateBusinessAndBlueprint(businessId);
+
+    // Get or auto-generate monthly strategy
+    let strategy = await this.firebase.getContentStrategyByBusinessId(businessId);
+    if (!strategy) {
+      strategy = await this.generateMonthlyStrategy(businessId);
+    }
+
+    // Start date calculation: Next Monday at 10:00 AM
     const now = new Date();
-    const nextMonday = new Date(now);
-    const currentDay = now.getDay();
-    const daysToMonday = currentDay === 0 ? 1 : 8 - currentDay;
-    nextMonday.setDate(now.getDate() + daysToMonday);
-    nextMonday.setHours(10, 0, 0, 0);
+    const startMonday = new Date(now);
+    const dayOfWeek = now.getDay();
+    const daysToMonday = dayOfWeek === 0 ? 1 : 8 - dayOfWeek;
+    startMonday.setDate(now.getDate() + daysToMonday);
+    startMonday.setHours(10, 0, 0, 0);
 
-    const postTypes = ['Graphic', 'Reel', 'Carousel', 'Story', 'Video', 'Blog', 'Poll'];
+    const daysOffsetMap: Record<string, number> = {
+      Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4, Saturday: 5, Sunday: 6,
+    };
 
-    for (let w = 0; w < durationWeeks; w++) {
-      this.logger.log(`Generating Week ${w + 1}/${durationWeeks} content calendar...`);
-      
-      const prompt = `Generate a content calendar for Week ${w + 1} of a ${durationWeeks}-week plan for:
-Business Name: ${businessContext.businessName}
-Industry: ${businessContext.industry}
-Target Audience: ${businessContext.targetAudience}
-Brand Tone: ${businessContext.brandTone}
-Products/Services: ${businessContext.productsServices}
-USP: ${businessContext.businessUSP}
-Language: ${businessContext.languages}
+    const createdEntries: any[] = [];
+    const postTypesList = ['Reel', 'Carousel', 'Image', 'Video', 'Story'];
+    const categoriesList = [
+      'Educational', 'Promotional', 'Brand Awareness', 'Customer Story',
+      'Testimonials', 'Behind the Scenes', 'Industry Tips', 'FAQs', 'Offers',
+      'Seasonal Content', 'Festival Content',
+    ];
 
-Please generate exactly 1 post for each of these posting days: ${selectedDays.join(', ')}.
-To maintain posting consistency, avoid duplicate ideas, and balance promotional and educational content.
-Intelligently mix these content types: ${postTypes.join(', ')}.
+    for (let week = 1; week <= durationWeeks; week++) {
+      this.logger.log(`Generating Week ${week}/${durationWeeks} calendar posts...`);
 
-For EACH day, return an object with:
-- dayName: the day name (e.g. "Monday")
-- postType: one of ${JSON.stringify(postTypes)}
-- contentIdea: creative engaging post idea
-- contentDescription: short description of what the post contains
-- caption: engaging caption
-- hashtags: array of 3-5 relevant hashtags
+      const promptInfo = await this.promptBuilder.buildMonthlyCalendarPrompt(
+        businessId,
+        strategy,
+        week,
+        selectedDays,
+      );
 
-Return ONLY valid JSON array of objects (no markdown, no code fences):
-[
-  {
-    "dayName": "Monday",
-    "postType": "...",
-    "contentIdea": "...",
-    "contentDescription": "...",
-    "caption": "...",
-    "hashtags": ["#tag1", "#tag2"]
-  },
-  ...
-]`;
-
-      let weekPlan: any[] = [];
+      let weekPosts: any[] = [];
       try {
-        const result = await this.openRouter.chatJson<any[]>(
-          'You are an expert social media content generator. Return valid JSON array.',
-          prompt,
-          0.8,
-          2500,
+        const response = await this.aiService.generateStructuredJson<any[]>(
+          promptInfo.systemPrompt,
+          promptInfo.userPrompt,
+          { temperature: 0.8, maxTokens: 3000 },
+          `ContentService.generateMonthlyCalendar.week${week}`,
         );
-        if (result && Array.isArray(result)) {
-          weekPlan = result;
+        if (response.data && Array.isArray(response.data)) {
+          weekPosts = response.data;
         }
       } catch (err: any) {
-        this.logger.error(`Failed to generate calendar week ${w + 1}: ${err.message}`);
+        this.logger.error(`Failed AI generation for Week ${week}: ${err.message}`);
       }
 
-      // Fallback if AI call fails
-      if (weekPlan.length === 0) {
-        weekPlan = selectedDays.map(day => ({
+      // Fallback for missing or failed week generation
+      if (!weekPosts.length) {
+        weekPosts = selectedDays.map((day, idx) => ({
           dayName: day,
-          postType: 'Graphic',
-          contentIdea: `Weekly highlight for ${businessContext.businessName}`,
-          contentDescription: `Showcase of products and services for ${businessContext.businessName}.`,
-          caption: `Discover the best of ${businessContext.businessName}! We offer premium quality and exceptional service.`,
-          hashtags: ['#Quality', '#Brand', '#Premium'],
+          platform: idx % 2 === 0 ? 'Instagram' : 'Facebook',
+          postType: postTypesList[idx % postTypesList.length],
+          category: categoriesList[idx % categoriesList.length],
+          objective: 'Brand Awareness',
+          headline: `Weekly Highlight: ${context.businessName}`,
+          caption: `Discover what makes ${context.businessName} the top choice for ${context.targetAudience}. ${context.businessUSP || ''}`,
+          cta: 'Learn More',
+          hashtags: ['#BrandAwareness', '#Quality', `#${(context.industry || 'Business').replace(/\s+/g, '')}`],
+          graphicPrompt: `Professional social media graphic for ${context.businessName}, modern design, vibrant colors, premium product aesthetic`,
+          bestPostingTime: '10:00 AM',
         }));
       }
 
-      for (const post of weekPlan) {
-        const offset = daysMap[post.dayName] || 0;
-        const scheduledTime = new Date(nextMonday);
-        scheduledTime.setDate(nextMonday.getDate() + (w * 7) + offset);
-        
-        const entry = await this.firebase.createContentCalendarEntry({
+      // Save each post entry into Firestore contentCalendar collection
+      for (const post of weekPosts) {
+        const dayOffset = daysOffsetMap[post.dayName] ?? 0;
+        const scheduledTime = new Date(startMonday);
+        scheduledTime.setDate(startMonday.getDate() + (week - 1) * 7 + dayOffset);
+
+        // Parse posting time string (e.g. "06:00 PM") if present
+        if (post.bestPostingTime) {
+          const match = post.bestPostingTime.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+          if (match) {
+            let hours = parseInt(match[1]);
+            const minutes = parseInt(match[2]);
+            const ampm = match[3]?.toUpperCase();
+            if (ampm === 'PM' && hours < 12) hours += 12;
+            if (ampm === 'AM' && hours === 12) hours = 0;
+            scheduledTime.setHours(hours, minutes, 0, 0);
+          }
+        }
+
+        const entryPayload = {
           businessId,
           dayName: post.dayName,
-          platform: 'Instagram',
-          scheduledTime,
-          contentIdea: post.contentIdea || '',
-          contentDescription: post.contentDescription || '',
+          platform: post.platform || 'Instagram',
+          postType: post.postType || 'Image',
+          category: post.category || 'Educational',
+          objective: post.objective || 'Brand Awareness',
+          headline: post.headline || `Highlight for ${context.businessName}`,
           caption: post.caption || '',
-          hashtags: post.hashtags || [],
-          postType: post.postType || 'Graphic',
-          status: 'PENDING',
-        });
-        entries.push(entry);
+          cta: post.cta || 'Learn More',
+          hashtags: Array.isArray(post.hashtags) ? post.hashtags : ['#Marketing'],
+          graphicPrompt: post.graphicPrompt || `Creative promo visual for ${context.businessName}`,
+          bestPostingTime: post.bestPostingTime || '10:00 AM',
+          scheduledTime,
+          status: 'DRAFT',
+          version: strategy.version || 'v1',
+          createdAt: new Date(),
+        };
+
+        const createdDoc = await this.firebase.createContentCalendarEntry(entryPayload);
+        createdEntries.push(createdDoc);
       }
     }
 
+    // Record generation audit trail
+    await this.firebase.createCalendarAuditTrail({
+      action: 'CALENDAR_GENERATED',
+      previousValue: null,
+      newValue: { count: createdEntries.length, durationWeeks, strategyVersion: strategy.version },
+      businessId,
+      calendarEntryId: 'ALL',
+      user: 'System/AI',
+    });
+
+    this.logger.log(`Calendar generated with ${createdEntries.length} posts for business ${businessId}`);
     return {
       success: true,
-      message: `Content calendar generated (${entries.length} posts for ${durationWeeks} week(s))`,
+      message: `Generated ${createdEntries.length} calendar posts across ${durationWeeks} weeks`,
       businessId,
-      entries,
+      strategy,
+      entries: createdEntries,
     };
   }
 
-  async getContentCalendar(businessId: string) {
-    const entries = await this.firebase.getContentCalendarByBusinessId(businessId);
-    return { total: entries.length, entries };
+  /** Alias method for backward compatibility */
+  async generateContentPlan(
+    businessId: string,
+    selectedDays: string[] = ['Monday', 'Wednesday', 'Friday'],
+    durationWeeks = 1,
+    industry?: string,
+  ) {
+    return this.generateMonthlyCalendar(businessId, { selectedDays, durationWeeks, industry });
+  }
+
+  // ─── Step 4 & 5: Pagination, Filtering & Content Retrieval ────────────────
+
+  /**
+   * Retrieves content calendar entries with filtering (month, status, platform, category, search)
+   * and pagination (page, limit).
+   */
+  async getContentCalendar(businessId: string, filters: CalendarFilterOptions = {}) {
+    if (!businessId) throw new BadRequestException('Business ID is required');
+
+    const page = Math.max(1, filters.page || 1);
+    const limit = Math.max(1, Math.min(100, filters.limit || 50));
+
+    let allEntries = await this.firebase.getContentCalendarByBusinessId(businessId);
+
+    // Filter by Status
+    if (filters.status && filters.status !== 'ALL') {
+      const targetStatus = filters.status.toUpperCase();
+      allEntries = allEntries.filter((e: any) => e.status?.toUpperCase() === targetStatus);
+    }
+
+    // Filter by Platform
+    if (filters.platform && filters.platform !== 'ALL') {
+      const targetPlatform = filters.platform.toLowerCase();
+      allEntries = allEntries.filter((e: any) => e.platform?.toLowerCase() === targetPlatform);
+    }
+
+    // Filter by Category
+    if (filters.category && filters.category !== 'ALL') {
+      const targetCategory = filters.category.toLowerCase();
+      allEntries = allEntries.filter((e: any) => e.category?.toLowerCase() === targetCategory);
+    }
+
+    // Filter by Month (format YYYY-MM)
+    if (filters.month) {
+      allEntries = allEntries.filter((e: any) => {
+        if (!e.scheduledTime) return false;
+        const dateObj = new Date(e.scheduledTime?.toDate ? e.scheduledTime.toDate() : e.scheduledTime);
+        const yearMonth = `${dateObj.getFullYear()}-${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
+        return yearMonth === filters.month;
+      });
+    }
+
+    // Search term filter
+    if (filters.search?.trim()) {
+      const term = filters.search.trim().toLowerCase();
+      allEntries = allEntries.filter((e: any) => {
+        const headline = (e.headline || e.contentIdea || '').toLowerCase();
+        const caption = (e.caption || e.contentDescription || '').toLowerCase();
+        const tags = Array.isArray(e.hashtags) ? e.hashtags.join(' ').toLowerCase() : '';
+        return headline.includes(term) || caption.includes(term) || tags.includes(term);
+      });
+    }
+
+    const total = allEntries.length;
+    const totalPages = Math.ceil(total / limit) || 1;
+    const startIndex = (page - 1) * limit;
+    const paginatedEntries = allEntries.slice(startIndex, startIndex + limit);
+
+    return {
+      total,
+      page,
+      limit,
+      totalPages,
+      entries: paginatedEntries,
+    };
   }
 
   async getGeneratedContent(businessId: string) {
@@ -171,12 +385,357 @@ Return ONLY valid JSON array of objects (no markdown, no code fences):
     return { total: content.length, content };
   }
 
-  async markPublished(calendarEntryId: string) {
-    const updated = await this.firebase.updateContentCalendarEntry(calendarEntryId, {
-      status: 'PUBLISHED',
-      publishedAt: new Date(),
+  // ─── Step 4: Approval Workflow & Content Operations (Firestore Transactions) ──
+
+  /**
+   * Approves a calendar post. Uses Firestore transaction to prevent partial write.
+   */
+  async approvePost(id: string, approvedBy = 'User') {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+
+    this.validateStatusTransition(entry.status || 'DRAFT', 'APPROVED');
+
+    const now = new Date();
+    const updated = await this.firebase.runTransaction(async (tx) => {
+      const docRef = this.firebase.col('contentCalendar').doc(id);
+      const updatePayload = {
+        status: 'APPROVED',
+        approvedAt: now,
+        approvedBy,
+        updatedAt: now,
+      };
+      await tx.update(docRef, updatePayload);
+      return { ...entry, ...updatePayload };
     });
+
+    await this.firebase.createCalendarAuditTrail({
+      action: 'POST_APPROVED',
+      previousValue: { status: entry.status },
+      newValue: { status: 'APPROVED', approvedBy, approvedAt: now },
+      user: approvedBy,
+      businessId: entry.businessId,
+      calendarEntryId: id,
+    });
+
+    this.logger.log(`Post ${id} approved by ${approvedBy}`);
     return { success: true, entry: updated };
+  }
+
+  /**
+   * Rejects a calendar post with reason. Uses Firestore transaction.
+   */
+  async rejectPost(id: string, reason?: string, user = 'User') {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+
+    this.validateStatusTransition(entry.status || 'DRAFT', 'REJECTED');
+
+    const now = new Date();
+    const updated = await this.firebase.runTransaction(async (tx) => {
+      const docRef = this.firebase.col('contentCalendar').doc(id);
+      const updatePayload = {
+        status: 'REJECTED',
+        rejectionReason: reason || 'User rejected post',
+        rejectedAt: now,
+        updatedAt: now,
+      };
+      await tx.update(docRef, updatePayload);
+      return { ...entry, ...updatePayload };
+    });
+
+    await this.firebase.createCalendarAuditTrail({
+      action: 'POST_REJECTED',
+      previousValue: { status: entry.status },
+      newValue: { status: 'REJECTED', reason },
+      user,
+      businessId: entry.businessId,
+      calendarEntryId: id,
+    });
+
+    this.logger.log(`Post ${id} rejected`);
+    return { success: true, entry: updated };
+  }
+
+  /**
+   * Bulk approves multiple calendar posts atomically using a Firestore transaction.
+   */
+  async bulkApprovePosts(ids: string[], approvedBy = 'User') {
+    if (!ids || !ids.length) {
+      throw new BadRequestException('Array of post IDs is required for bulk approval');
+    }
+
+    const now = new Date();
+    const updatedEntries = await this.firebase.runTransaction(async (tx) => {
+      const results: any[] = [];
+      for (const id of ids) {
+        const docRef = this.firebase.col('contentCalendar').doc(id);
+        const doc = await tx.get(docRef);
+        if (doc.exists) {
+          const updatePayload = {
+            status: 'APPROVED',
+            approvedAt: now,
+            approvedBy,
+            updatedAt: now,
+          };
+          await tx.update(docRef, updatePayload);
+          results.push({ id, ...doc.data(), ...updatePayload });
+        }
+      }
+      return results;
+    });
+
+    for (const item of updatedEntries) {
+      await this.firebase.createCalendarAuditTrail({
+        action: 'POST_BULK_APPROVED',
+        previousValue: { status: item.status },
+        newValue: { status: 'APPROVED', approvedBy },
+        user: approvedBy,
+        businessId: item.businessId,
+        calendarEntryId: item.id,
+      });
+    }
+
+    return {
+      success: true,
+      message: `Successfully approved ${updatedEntries.length} post(s)`,
+      count: updatedEntries.length,
+      entries: updatedEntries,
+    };
+  }
+
+  /**
+   * Edits a calendar post entry. Uses Firestore transaction.
+   */
+  async editPost(id: string, updateData: any, user = 'User') {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+
+    if (updateData.status && updateData.status !== entry.status) {
+      this.validateStatusTransition(entry.status, updateData.status);
+    }
+
+    const now = new Date();
+    const updated = await this.firebase.runTransaction(async (tx) => {
+      const docRef = this.firebase.col('contentCalendar').doc(id);
+      const updatePayload = {
+        ...updateData,
+        updatedAt: now,
+      };
+      await tx.update(docRef, updatePayload);
+      return { ...entry, ...updatePayload };
+    });
+
+    await this.firebase.createCalendarAuditTrail({
+      action: 'POST_EDITED',
+      previousValue: entry,
+      newValue: updated,
+      user,
+      businessId: entry.businessId,
+      calendarEntryId: id,
+    });
+
+    return { success: true, entry: updated };
+  }
+
+  /** Legacy edit alias */
+  async updateCalendarEntry(id: string, data: any) {
+    return this.editPost(id, data);
+  }
+
+  /**
+   * Duplicates a post entry. Uses Firestore transaction.
+   */
+  async duplicatePost(id: string, user = 'User') {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+
+    const newId = this.firebase.generateId();
+    const now = new Date();
+    const newEntry = {
+      ...entry,
+      id: newId,
+      headline: `(Copy) ${entry.headline || entry.contentIdea || 'Post'}`,
+      status: 'DRAFT',
+      approvedAt: null,
+      approvedBy: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.firebase.runTransaction(async (tx) => {
+      const docRef = this.firebase.col('contentCalendar').doc(newId);
+      await tx.set(docRef, newEntry);
+    });
+
+    await this.firebase.createCalendarAuditTrail({
+      action: 'POST_DUPLICATED',
+      previousValue: { originalId: id },
+      newValue: { newId, headline: newEntry.headline },
+      user,
+      businessId: entry.businessId,
+      calendarEntryId: newId,
+    });
+
+    return { success: true, entry: newEntry };
+  }
+
+  /**
+   * Deletes a calendar post. Uses Firestore transaction.
+   */
+  async deletePost(id: string, user = 'User') {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+
+    await this.firebase.runTransaction(async (tx) => {
+      const docRef = this.firebase.col('contentCalendar').doc(id);
+      await tx.delete(docRef);
+    });
+
+    await this.firebase.createCalendarAuditTrail({
+      action: 'POST_DELETED',
+      previousValue: entry,
+      newValue: null,
+      user,
+      businessId: entry.businessId,
+      calendarEntryId: id,
+    });
+
+    return { success: true, id };
+  }
+
+  async deleteCalendarEntry(id: string) {
+    return this.deletePost(id);
+  }
+
+  /**
+   * Reschedules a calendar post to a new date/time. Uses Firestore transaction.
+   */
+  async reschedulePost(id: string, newScheduledTime: string | Date, user = 'User') {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+
+    const parsedDate = new Date(newScheduledTime);
+    if (isNaN(parsedDate.getTime())) {
+      throw new BadRequestException(`Invalid scheduledTime date string: ${newScheduledTime}`);
+    }
+
+    const now = new Date();
+    const updated = await this.firebase.runTransaction(async (tx) => {
+      const docRef = this.firebase.col('contentCalendar').doc(id);
+      const updatePayload = {
+        scheduledTime: parsedDate,
+        updatedAt: now,
+      };
+      await tx.update(docRef, updatePayload);
+      return { ...entry, ...updatePayload };
+    });
+
+    await this.firebase.createCalendarAuditTrail({
+      action: 'POST_RESCHEDULED',
+      previousValue: { scheduledTime: entry.scheduledTime },
+      newValue: { scheduledTime: parsedDate },
+      user,
+      businessId: entry.businessId,
+      calendarEntryId: id,
+    });
+
+    return { success: true, entry: updated };
+  }
+
+  /**
+   * Regenerates creative content for a single post using AI.
+   */
+  async regenerateSinglePost(id: string, user = 'User') {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+
+    const context = await this.businessIntelligence.getBusinessContext(entry.businessId);
+
+    const prompt = `You are an expert social media marketing writer for CampaignAI.
+Regenerate creative content for a single post:
+Business: ${context.businessName}
+Industry: ${context.businessCategory}
+Target Audience: ${context.targetAudience}
+Brand Tone: ${context.brandVoice}
+Original Post Type: ${entry.postType || 'Image'}
+Original Category: ${entry.category || 'Educational'}
+
+Provide a fresh, unique concept.
+Return ONLY valid JSON (no markdown, no code fences):
+{
+  "headline": "New compelling hook",
+  "caption": "Fresh engaging caption with call to action",
+  "cta": "Shop Now",
+  "hashtags": ["#tag1", "#tag2", "#tag3"],
+  "graphicPrompt": "New detailed image generation prompt"
+}`;
+
+    let result: any = null;
+    try {
+      const response = await this.aiService.generateStructuredJson<any>(
+        'You are an expert social media copywriter. Return valid JSON.',
+        prompt,
+        { temperature: 0.8, maxTokens: 1500 },
+        'ContentService.regenerateSinglePost',
+      );
+      result = response.data;
+    } catch (err: any) {
+      this.logger.error(`Single post regeneration error: ${err.message}`);
+    }
+
+    if (!result) {
+      result = {
+        headline: `Fresh Focus: ${context.businessName}`,
+        caption: `Experience quality with ${context.businessName}. Crafted specifically for ${context.targetAudience}.`,
+        cta: 'Discover More',
+        hashtags: ['#Quality', '#Brand', '#Innovation'],
+        graphicPrompt: `Modern product visual for ${context.businessName}`,
+      };
+    }
+
+    const updated = await this.editPost(
+      id,
+      {
+        headline: result.headline || entry.headline,
+        caption: result.caption || entry.caption,
+        cta: result.cta || entry.cta,
+        hashtags: result.hashtags || entry.hashtags,
+        graphicPrompt: result.graphicPrompt || entry.graphicPrompt,
+      },
+      user,
+    );
+
+    await this.firebase.createCalendarAuditTrail({
+      action: 'POST_REGENERATED',
+      previousValue: { headline: entry.headline },
+      newValue: { headline: result.headline },
+      user,
+      businessId: entry.businessId,
+      calendarEntryId: id,
+    });
+
+    return updated;
+  }
+
+  async regenerateCalendarEntry(id: string) {
+    return this.regenerateSinglePost(id);
+  }
+
+  // ─── Deferred Operations (Return HTTP 501) ────────────────────────────────
+
+  async regenerateWeek(businessId: string, weekNumber: number) {
+    this.logger.log(`Deferred endpoint called: regenerateWeek business=${businessId} week=${weekNumber}`);
+    throw new NotImplementedException('Regenerate week functionality is deferred until required by frontend.');
+  }
+
+  async regenerateMonth(businessId: string) {
+    this.logger.log(`Deferred endpoint called: regenerateMonth business=${businessId}`);
+    throw new NotImplementedException('Regenerate month functionality is deferred until required by frontend.');
+  }
+
+  async markPublished(calendarEntryId: string) {
+    return this.editPost(calendarEntryId, { status: 'PUBLISHED', publishedAt: new Date() });
   }
 
   async createCalendarEntry(data: any) {
@@ -185,147 +744,5 @@ Return ONLY valid JSON array of objects (no markdown, no code fences):
       scheduledTime: data.scheduledTime ? new Date(data.scheduledTime) : new Date(),
     });
     return { success: true, entry };
-  }
-
-  async updateCalendarEntry(calendarEntryId: string, data: { caption?: string; scheduledTime?: Date; status?: string; contentIdea?: string; contentDescription?: string; postType?: string; hashtags?: string[] }) {
-    const updated = await this.firebase.updateContentCalendarEntry(calendarEntryId, data);
-    return { success: true, entry: updated };
-  }
-
-  async deleteCalendarEntry(calendarEntryId: string) {
-    await this.firebase.deleteContentCalendarEntry(calendarEntryId);
-    return { success: true };
-  }
-
-  async regenerateCalendarEntry(id: string) {
-    const entry = await this.firebase.getContentCalendarEntryById(id);
-    if (!entry) throw new Error('Calendar entry not found');
-
-    const profile = await this.firebase.getBusinessProfile(entry.businessId);
-    const businessContext = profile ? {
-      businessName: profile.businessName || 'the business',
-      industry: profile.industry || 'general',
-      targetAudience: profile.targetAudience || 'general audience',
-      brandTone: profile.brandTone || 'professional',
-    } : {
-      businessName: 'the business',
-      industry: 'general',
-      targetAudience: 'general audience',
-      brandTone: 'professional',
-    };
-
-    const postTypes = ['Graphic', 'Reel', 'Carousel', 'Story', 'Video', 'Blog', 'Poll'];
-    const prompt = `You are an expert social media copywriter. Regenerate a single social media post calendar entry for:
-Business Name: ${businessContext.businessName}
-Industry: ${businessContext.industry}
-Target Audience: ${businessContext.targetAudience}
-Brand Tone: ${businessContext.brandTone}
-
-Original Post Type: ${entry.postType || 'Graphic'}
-Original Idea (if any): ${entry.contentIdea || ''}
-
-Provide a completely new unique creative concept.
-Return ONLY valid JSON in this format (no markdown, no code fences):
-{
-  "postType": "...",
-  "contentIdea": "...",
-  "contentDescription": "...",
-  "caption": "...",
-  "hashtags": ["#tag1", "#tag2", "#tag3"]
-}`;
-
-    let result: any = null;
-    try {
-      result = await this.openRouter.chatJson<any>(
-        'You are an expert social media marketing writer. Return valid JSON.',
-        prompt,
-        0.8,
-        1500,
-      );
-    } catch (err: any) {
-      this.logger.error(`Regenerate single post failed: ${err.message}`);
-    }
-
-    if (result) {
-      const updated = await this.firebase.updateContentCalendarEntry(id, {
-        postType: result.postType || entry.postType,
-        contentIdea: result.contentIdea || entry.contentIdea,
-        contentDescription: result.contentDescription || entry.contentDescription,
-        caption: result.caption || entry.caption,
-        hashtags: result.hashtags || entry.hashtags || [],
-      });
-      return { success: true, entry: updated };
-    }
-
-    return { success: false, message: 'AI generation fallback executed' };
-  }
-
-  // ─── Private Helpers ──────────────────────────────────────────────────────────
-
-  private getNextWeekday(offset: number): Date {
-    const now = new Date();
-    const monday = new Date(now);
-    const day = now.getDay();
-    const diff = day === 0 ? 1 : 8 - day;
-    monday.setDate(now.getDate() + diff + offset);
-    monday.setHours(10, 0, 0, 0);
-    return monday;
-  }
-
-  private generateFallbackPlan(context: any, days: string[]): any[] {
-    const templates = [
-      {
-        caption: `✨ Start your week with ${context.businessName}! Our ${context.productsServices || 'products'} are designed for ${context.targetAudience}. Discover what makes us different.`,
-        headline: 'Start Your Week Strong',
-        cta: 'Shop Now',
-        hashtags: ['#MondayMotivation', '#QualityFirst', `#${(context.industry || '').replace(/\s+/g, '')}`, '#NewWeek', '#BrandExcellence'],
-        postType: 'Image Post',
-        bestPostingTime: '10:00 AM',
-        platform: 'Instagram',
-        imagePrompt: `Clean modern product showcase for ${context.industry} business, minimalist aesthetic, studio lighting, premium feel`,
-      },
-      {
-        caption: `🌟 Behind the scenes at ${context.businessName}. Here's how we ensure quality in everything we do for ${context.targetAudience}. 👇`,
-        headline: 'Behind The Scenes',
-        cta: 'Learn More',
-        hashtags: ['#BehindTheScenes', '#QualityMatters', '#OurStory', '#Craftsmanship', '#TuesdayVibes'],
-        postType: 'Carousel',
-        bestPostingTime: '12:00 PM',
-        platform: 'Facebook',
-        imagePrompt: `Behind-the-scenes workspace showing craftsmanship in ${context.industry}, warm natural lighting`,
-      },
-      {
-        caption: `💬 "This changed everything!" — Real feedback from our community. ${context.businessUSP || 'See why customers love us.'} ⭐⭐⭐⭐⭐`,
-        headline: 'Hear From Our Customers',
-        cta: 'Read Reviews',
-        hashtags: ['#CustomerLove', '#Testimonial', '#FiveStars', '#HappyCustomers', '#WednesdayWins'],
-        postType: 'Video',
-        bestPostingTime: '2:00 PM',
-        platform: 'Instagram',
-        imagePrompt: `Happy diverse customers using ${context.industry} products, bright modern setting, authentic feel`,
-      },
-      {
-        caption: `📈 Quick tip for ${context.targetAudience}: consistency is key! Our ${context.productsServices || 'solution'} helps you stay ahead every single day.`,
-        headline: 'Pro Tips Thursday',
-        cta: 'Get Started',
-        hashtags: ['#ProTips', '#GrowthMindset', '#ThursdayThoughts', '#BusinessTips', '#StayAhead'],
-        postType: 'Reel',
-        bestPostingTime: '11:00 AM',
-        platform: 'Facebook',
-        imagePrompt: `Professional infographic style visual for ${context.industry} tips, modern design, clean typography`,
-      },
-      {
-        caption: `🎉 Friday treat! Exclusive weekend offer for our community. Don't miss out — limited time only! ⏰ ${context.businessUSP || ''}`,
-        headline: 'Weekend Special Offer',
-        cta: 'Claim Now',
-        hashtags: ['#FridayFeeling', '#WeekendOffer', '#FlashSale', '#LimitedTime', '#TGIF'],
-        postType: 'Story',
-        bestPostingTime: '3:00 PM',
-        platform: 'Instagram',
-        imagePrompt: `Vibrant celebration with ${context.industry} product at center, confetti, bright colors, sale promotion aesthetic`,
-      },
-    ];
-
-    return templates.map((t, i) => ({ ...t, day: days[i] }));
   }
 }

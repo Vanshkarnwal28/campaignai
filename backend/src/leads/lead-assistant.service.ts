@@ -1,12 +1,14 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { FirebaseService } from '../firebase/firebase.service';
-import { OpenRouterService } from '../openrouter/openrouter.service';
+import { AiService } from '../ai/ai.service';
+import { BusinessIntelligenceService } from '../business/business-intelligence.service';
 
 /**
  * LeadAssistantService — Phase 7: AI Lead Assistant.
  *
  * Post-lead AI actions: summarization, priority scoring,
  * follow-up suggestions, WhatsApp/Email/Call Script generation.
+ * Consumes central BusinessContext from BusinessIntelligenceService.
  */
 @Injectable()
 export class LeadAssistantService {
@@ -14,7 +16,8 @@ export class LeadAssistantService {
 
   constructor(
     private readonly firebase: FirebaseService,
-    private readonly openRouter: OpenRouterService,
+    private readonly aiService: AiService,
+    private readonly businessIntelligence: BusinessIntelligenceService,
   ) {}
 
   /**
@@ -24,14 +27,14 @@ export class LeadAssistantService {
     const lead = await this.firebase.getLeadById(leadId) as any;
     if (!lead) throw new NotFoundException('Lead not found');
 
-    const profile = lead.businessId
-      ? await this.firebase.getBusinessProfile(lead.businessId)
+    const businessContext = lead.businessId
+      ? await this.businessIntelligence.getBusinessContext(lead.businessId)
       : null;
 
     const [summary, priority, followUp] = await Promise.all([
-      this.summarizeRequirement(lead, profile),
-      this.suggestPriority(lead, profile),
-      this.recommendFollowUp(lead, profile),
+      this.summarizeRequirement(lead, businessContext),
+      this.suggestPriority(lead, businessContext),
+      this.recommendFollowUp(lead, businessContext),
     ]);
 
     return {
@@ -53,7 +56,7 @@ export class LeadAssistantService {
     if (!lead) throw new NotFoundException('Lead not found');
 
     try {
-      return await this.openRouter.chat(
+      return await this.aiService.chat(
         'You are a CRM assistant. Summarize the lead information concisely.',
         `Summarize this lead in 2-3 sentences:
 Name: ${lead.name}
@@ -65,6 +68,7 @@ Campaign: ${lead.campaign || 'Direct'}
 Status: ${lead.status || 'NEW'}`,
         0.5,
         200,
+        'LeadAssistantService.summarizeRequirement',
       );
     } catch {
       return `Lead ${lead.name} (${lead.email}) from ${lead.source || 'direct'} source. ${lead.requirement || 'No specific requirement noted.'}`;
@@ -81,7 +85,7 @@ Status: ${lead.status || 'NEW'}`,
     if (!lead) throw new NotFoundException('Lead not found');
 
     try {
-      const result = await this.openRouter.chatJson<{ level: string; reason: string }>(
+      const result = await this.aiService.chatJson<{ level: string; reason: string }>(
         'You are a sales prioritization expert. Analyze lead data and assign priority.',
         `Assign a priority level (HIGH, MEDIUM, or LOW) to this lead and explain why:
 
@@ -96,6 +100,7 @@ Business Industry: ${profile?.industry || 'General'}
 Return JSON: {"level": "HIGH|MEDIUM|LOW", "reason": "explanation"}`,
         0.5,
         200,
+        'LeadAssistantService.suggestPriority',
       );
 
       if (result?.level) return result;
@@ -121,7 +126,7 @@ Return JSON: {"level": "HIGH|MEDIUM|LOW", "reason": "explanation"}`,
     if (!lead) throw new NotFoundException('Lead not found');
 
     try {
-      return await this.openRouter.chat(
+      return await this.aiService.chat(
         'You are a sales follow-up strategist. Recommend the best follow-up approach.',
         `Suggest a follow-up strategy (3-4 bullet points) for this lead:
 Name: ${lead.name}
@@ -132,6 +137,7 @@ Business: ${profile?.businessName || 'Our business'}
 Industry: ${profile?.industry || 'General'}`,
         0.7,
         300,
+        'LeadAssistantService.recommendFollowUp',
       );
     } catch {
       return `• Reach out within 24 hours via phone or WhatsApp\n• Reference their specific interest: "${lead.requirement || 'your services'}"\n• Offer a free consultation or demo\n• Schedule a follow-up reminder for 48 hours`;
@@ -146,11 +152,11 @@ Industry: ${profile?.industry || 'General'}`,
     if (!lead) throw new NotFoundException('Lead not found');
 
     const profile = lead.businessId
-      ? await this.firebase.getBusinessProfile(lead.businessId)
+      ? await this.businessIntelligence.getBusinessContext(lead.businessId)
       : null;
 
     try {
-      return await this.openRouter.chat(
+      return await this.aiService.chat(
         `You are a WhatsApp message writer. Write in a ${profile?.brandTone || 'professional yet friendly'} tone. Keep messages concise for WhatsApp (under 200 words). Include emojis where appropriate.`,
         `Write a WhatsApp follow-up message for this lead:
 Lead Name: ${lead.name}
@@ -161,6 +167,7 @@ Industry: ${profile?.industry || 'General'}
 USP: ${profile?.businessUSP || ''}`,
         0.7,
         300,
+        'LeadAssistantService.generateWhatsAppMessage',
       );
     } catch {
       return `Hi ${lead.name}! 👋\n\nThank you for your interest in ${profile?.businessName || 'our services'}. I noticed you were looking at ${lead.requirement || 'our offerings'}.\n\nI'd love to help you find the perfect solution. Would you have a few minutes for a quick chat?\n\nLooking forward to hearing from you! 😊`;
@@ -175,11 +182,11 @@ USP: ${profile?.businessUSP || ''}`,
     if (!lead) throw new NotFoundException('Lead not found');
 
     const profile = lead.businessId
-      ? await this.firebase.getBusinessProfile(lead.businessId)
+      ? await this.businessIntelligence.getBusinessContext(lead.businessId)
       : null;
 
     try {
-      return await this.openRouter.chat(
+      return await this.aiService.chat(
         `You are a professional email copywriter. Write in a ${profile?.brandTone || 'professional'} tone. Include subject line, greeting, body, and sign-off. Keep under 250 words.`,
         `Write a follow-up email for this lead:
 Lead Name: ${lead.name}
@@ -192,6 +199,7 @@ Products: ${profile?.productsServices || ''}
 USP: ${profile?.businessUSP || ''}`,
         0.7,
         500,
+        'LeadAssistantService.generateEmailReply',
       );
     } catch {
       return `Subject: Re: Your inquiry about ${profile?.businessName || 'our services'}\n\nDear ${lead.name},\n\nThank you for your interest in ${profile?.businessName || 'our company'}. We received your inquiry and would love to assist you.\n\n${lead.requirement ? `Regarding your interest in ${lead.requirement}, we have several options that might be perfect for you.` : 'We offer a range of solutions tailored to your needs.'}\n\nWould you be available for a brief call this week? I'd be happy to walk you through our offerings and answer any questions.\n\nBest regards,\n${profile?.businessName || 'The Team'}`;
@@ -206,11 +214,11 @@ USP: ${profile?.businessUSP || ''}`,
     if (!lead) throw new NotFoundException('Lead not found');
 
     const profile = lead.businessId
-      ? await this.firebase.getBusinessProfile(lead.businessId)
+      ? await this.businessIntelligence.getBusinessContext(lead.businessId)
       : null;
 
     try {
-      return await this.openRouter.chat(
+      return await this.aiService.chat(
         `You are a sales call script writer. Create a structured call script with clear sections: Opening, Discovery Questions, Value Proposition, Handling Objections, and Close. Keep in ${profile?.brandTone || 'professional'} tone.`,
         `Create a call script for reaching out to this lead:
 Lead Name: ${lead.name}
@@ -223,6 +231,7 @@ USP: ${profile?.businessUSP || ''}
 Competitors: ${profile?.competitors || ''}`,
         0.7,
         600,
+        'LeadAssistantService.generateCallScript',
       );
     } catch {
       return `📞 CALL SCRIPT — ${lead.name}

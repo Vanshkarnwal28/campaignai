@@ -269,6 +269,42 @@ export const api = {
       return await handleResponse(res);
     },
 
+    /** Fetch full Business Context from Business Consultant Agent */
+    async getBusinessContext(businessId: string) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/context`, {
+        headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
+    /** Fetch active Business Blueprint and version history */
+    async getBusinessBlueprint(businessId: string) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/blueprint`, {
+        headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
+    /** Approve Business Blueprint to unlock Dashboard */
+    async approveBusinessBlueprint(businessId: string, blueprintId?: string) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/blueprint/approve`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ blueprintId }),
+      });
+      return await handleResponse(res);
+    },
+
+    /** Regenerate Business Blueprint (new AI version) */
+    async regenerateBusinessBlueprint(businessId: string) {
+      const res = await fetch(`${BASE_URL}/business/${businessId}/blueprint/regenerate`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({}),
+      });
+      return await handleResponse(res);
+    },
+
     async getProfile(businessId: string) {
       const res = await fetch(`${BASE_URL}/business/${businessId}/profile`, {
         headers: getHeaders(),
@@ -467,6 +503,22 @@ export const api = {
   // ─── Content API ──────────────────────────────────────────────────────────────
 
   content: {
+    async generateStrategy(businessId: string) {
+      const res = await fetch(`${BASE_URL}/content/strategy/generate`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ businessId }),
+      });
+      return await handleResponse(res);
+    },
+
+    async getStrategy(businessId: string) {
+      const res = await fetch(`${BASE_URL}/content/strategy?businessId=${businessId}`, {
+        headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
     async generatePlan(businessId: string, payload: { selectedDays: string[]; durationWeeks: number; industry?: string }) {
       const res = await fetch(`${BASE_URL}/content/generate-plan`, {
         method: 'POST',
@@ -485,8 +537,9 @@ export const api = {
       return await handleResponse(res);
     },
 
-    async getCalendar(businessId: string) {
-      const res = await fetch(`${BASE_URL}/content/calendar?businessId=${businessId}`, {
+    async getCalendar(businessId: string, filters: Record<string, any> = {}) {
+      const params = new URLSearchParams({ businessId, ...filters });
+      const res = await fetch(`${BASE_URL}/content/calendar?${params}`, {
         headers: getHeaders(),
       });
       return await handleResponse(res);
@@ -495,6 +548,33 @@ export const api = {
     async getGenerated(businessId: string) {
       const res = await fetch(`${BASE_URL}/content/generated?businessId=${businessId}`, {
         headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
+    async approveEntry(entryId: string, approvedBy?: string) {
+      const res = await fetch(`${BASE_URL}/content/calendar/${entryId}/approve`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ approvedBy }),
+      });
+      return await handleResponse(res);
+    },
+
+    async rejectEntry(entryId: string, reason?: string) {
+      const res = await fetch(`${BASE_URL}/content/calendar/${entryId}/reject`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ reason }),
+      });
+      return await handleResponse(res);
+    },
+
+    async bulkApprove(ids: string[], approvedBy?: string) {
+      const res = await fetch(`${BASE_URL}/content/bulk/approve`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ ids, approvedBy }),
       });
       return await handleResponse(res);
     },
@@ -516,6 +596,23 @@ export const api = {
       return await handleResponse(res);
     },
 
+    async duplicateEntry(entryId: string) {
+      const res = await fetch(`${BASE_URL}/content/calendar/${entryId}/duplicate`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
+    async rescheduleEntry(entryId: string, scheduledTime: string) {
+      const res = await fetch(`${BASE_URL}/content/calendar/${entryId}/reschedule`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ scheduledTime }),
+      });
+      return await handleResponse(res);
+    },
+
     async deleteEntry(entryId: string) {
       const res = await fetch(`${BASE_URL}/content/calendar/${entryId}`, {
         method: 'DELETE',
@@ -528,6 +625,24 @@ export const api = {
       const res = await fetch(`${BASE_URL}/content/calendar/${entryId}/regenerate`, {
         method: 'POST',
         headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+
+    async regenerateWeek(businessId: string, weekNumber: number) {
+      const res = await fetch(`${BASE_URL}/content/regenerate-week`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ businessId, weekNumber }),
+      });
+      return await handleResponse(res);
+    },
+
+    async regenerateMonth(businessId: string) {
+      const res = await fetch(`${BASE_URL}/content/regenerate-month`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ businessId }),
       });
       return await handleResponse(res);
     },
@@ -1036,4 +1151,10 @@ export const api = {
       return await handleResponse(res);
     },
   },
+
+  // Top-level shortcuts
+  getBusinessContext: (businessId: string) => api.business.getBusinessContext(businessId),
+  getBusinessBlueprint: (businessId: string) => api.business.getBusinessBlueprint(businessId),
+  approveBusinessBlueprint: (businessId: string, blueprintId?: string) => api.business.approveBusinessBlueprint(businessId, blueprintId),
+  regenerateBusinessBlueprint: (businessId: string) => api.business.regenerateBusinessBlueprint(businessId),
 };

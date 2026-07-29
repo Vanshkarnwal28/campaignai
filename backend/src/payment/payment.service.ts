@@ -79,7 +79,7 @@ export class PaymentService {
     try {
       this.logger.log(`Calling Instamojo API to create payment request: ${baseUrl}/api/1.1/payment-requests/`);
       const instamojoRes = await axios.post(
-        `${baseUrl}/api/1.1/payment-requests/`,
+        `${baseUrl}/api/1.1/payment-requests`,
         formData.toString(),
         {
           headers: {

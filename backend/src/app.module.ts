@@ -11,14 +11,16 @@ import { ContentModule } from './content/content.module';
 import { LeadsModule } from './leads/leads.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { PaymentModule } from './payment/payment.module';
-// AI — OpenRouter replaces Gemini
+// AI service layer
+import { AiModule } from './ai/ai.module';
 import { OpenRouterModule } from './openrouter/openrouter.module';
 
 @Module({
   imports: [
     // Core infrastructure
     FirebaseModule,
-    OpenRouterModule,     // Global AI service (OpenRouter)
+    AiModule,           // Centralized AI service layer (AIService → OpenRouter)
+    OpenRouterModule,   // Kept for backward compatibility during migration
     // Feature modules
     AuthModule,
     IntegrationsModule,
@@ -28,7 +30,6 @@ import { OpenRouterModule } from './openrouter/openrouter.module';
     AdminModule,
     AssistantModule,
     PaymentModule,
-    // Phase 7 — future features
     ContentModule,
     LeadsModule,
     SchedulerModule,

@@ -951,6 +951,79 @@ export class FirebaseService implements OnModuleInit {
     return { id: doc.id, ...doc.data() };
   }
 
+  // ─── Content Strategy ─────────────────────────────────────────────────────────
+
+  async upsertContentStrategy(businessId: string, strategyData: Record<string, any>) {
+    const existing = await this.getContentStrategyByBusinessId(businessId);
+    const id = existing?.id || this.generateId();
+    const versionNumber = (existing?.versionNumber || 0) + 1;
+    const payload = {
+      id,
+      businessId,
+      ...strategyData,
+      version: `v${versionNumber}`,
+      versionNumber,
+      updatedAt: new Date(),
+      createdAt: existing?.createdAt || new Date(),
+    };
+
+    await this.col('contentStrategies').doc(id).set(payload);
+    return payload;
+  }
+
+  async getContentStrategyByBusinessId(businessId: string) {
+    const snap = await this.col('contentStrategies')
+      .where('businessId', '==', businessId)
+      .get();
+    if (snap.empty) return null;
+    const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    docs.sort((a: any, b: any) => (b.versionNumber || 0) - (a.versionNumber || 0));
+    return docs[0];
+  }
+
+  // ─── Calendar Audit Trail & Transactions ─────────────────────────────────────
+
+  async createCalendarAuditTrail(data: {
+    action: string;
+    previousValue: any;
+    newValue: any;
+    timestamp?: Date;
+    user?: string;
+    businessId: string;
+    calendarEntryId: string;
+  }) {
+    const id = this.generateId();
+    const auditRecord = {
+      id,
+      ...data,
+      timestamp: data.timestamp || new Date(),
+      user: data.user || 'System/User',
+      createdAt: new Date(),
+    };
+    await this.col('calendarHistory').doc(id).set(auditRecord);
+    return auditRecord;
+  }
+
+  /**
+   * Executes an atomic transaction. Supports both real Firestore transactions
+   * and MockDb in-memory transaction semantics to ensure partial write safety.
+   */
+  async runTransaction<T>(updateFunction: (transaction: any) => Promise<T>): Promise<T> {
+    if (process.env.FIREBASE_PROJECT_ID && this.db && typeof this.db.runTransaction === 'function') {
+      return this.db.runTransaction(updateFunction);
+    }
+
+    // MockDb transaction context wrapper
+    const mockTx = {
+      get: async (docRef: any) => docRef.get(),
+      set: async (docRef: any, data: any, options?: any) => docRef.set(data, options),
+      update: async (docRef: any, data: any) => docRef.update(data),
+      delete: async (docRef: any) => docRef.delete(),
+    };
+
+    return updateFunction(mockTx);
+  }
+
   // ─── Leads ────────────────────────────────────────────────────────────────────
 
   /**
@@ -1068,5 +1141,22 @@ export class FirebaseService implements OnModuleInit {
           : new Date(p.scheduledTime?._seconds ? p.scheduledTime._seconds * 1000 : p.scheduledTime);
         return scheduled <= now;
       });
+  }
+
+  // ─── Generic Document Utilities ─────────────────────────────────────────────
+
+  async createDocument(collectionName: string, data: Record<string, any>) {
+    const id = this.generateId();
+    const now = new Date();
+    const docData = { ...data, createdAt: now, updatedAt: now };
+    await this.col(collectionName).doc(id).set(docData);
+    return { id, ...docData };
+  }
+
+  async updateDocument(collectionName: string, id: string, data: Record<string, any>) {
+    const updateData = { ...data, updatedAt: new Date() };
+    await this.col(collectionName).doc(id).update(updateData);
+    const updated = await this.col(collectionName).doc(id).get();
+    return { id, ...updated.data() };
   }
 }

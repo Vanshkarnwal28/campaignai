@@ -2,7 +2,7 @@ import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import * as dotenv from 'dotenv';
 import axios from 'axios';
 import { FirebaseService } from '../firebase/firebase.service';
-import { OpenRouterService } from '../openrouter/openrouter.service';
+import { AiService } from '../ai/ai.service';
 
 dotenv.config();
 
@@ -13,7 +13,7 @@ export class IntegrationsService {
 
   constructor(
     private readonly firebase: FirebaseService,
-    private readonly openRouter: OpenRouterService,
+    private readonly aiService: AiService,
   ) {}
 
   onModuleInit() {
@@ -49,7 +49,7 @@ export class IntegrationsService {
       }
     }
 
-    const result = await this.openRouter.chatJson<{
+    const result = await this.aiService.chatJson<{
       swot: { strengths: string[]; weaknesses: string[]; opportunities: string[]; threats: string[] };
       competitors: { competitors: { name: string; strength: string; strategy: string }[] };
     }>(
@@ -77,6 +77,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
 }`,
       0.7,
       2048,
+      'IntegrationsService.generateBusinessStrategy',
     );
 
     if (result) return result;
@@ -133,7 +134,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
   ) {
     this.logger.log(`Generating Ad Creative. Prompt: ${promptText}. Mock: ${this.isMock}`);
 
-    const result = await this.openRouter.chatJson<{
+    const result = await this.aiService.chatJson<{
       headline: string;
       description: string;
       primaryText: string;
@@ -159,6 +160,7 @@ Return ONLY valid JSON (no markdown, no code fences):
 }`,
       0.8,
       1024,
+      'IntegrationsService.generateAdCreative',
     );
 
     if (result) return result;
@@ -185,7 +187,7 @@ Return ONLY valid JSON (no markdown, no code fences):
 
     const themeContext = festivalTheme ? `FESTIVAL / EVENT THEME: ${festivalTheme}` : 'No specific theme (Evergreen campaign)';
 
-    const result = await this.openRouter.chatJson<{
+    const result = await this.aiService.chatJson<{
       marketingStrategySummary: string;
       creativeIdeas: string;
       expectedROAS: number;
@@ -240,10 +242,11 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
 }`,
       0.7,
       4096,
+      'IntegrationsService.generateCampaignStrategy',
     );
 
     if (result) {
-      this.logger.log('OpenRouter campaign strategy generated successfully');
+      this.logger.log('AI campaign strategy generated successfully');
       return result;
     }
 
@@ -303,14 +306,6 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
       'email',
       'pages_show_list',
       'pages_read_engagement',
-      'pages_manage_ads',
-      'ads_management',
-      'ads_read',
-      'business_management',
-      'instagram_basic',
-      'instagram_manage_insights',
-      'instagram_manage_comments',
-      'leads_retrieval',
     ].join(',');
     return `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${state}&auth_type=rerequest`;
   }
