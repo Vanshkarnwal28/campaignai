@@ -3,6 +3,8 @@ import { FirebaseService } from '../firebase/firebase.service';
 import { IntegrationsService } from '../integrations/integrations.service';
 import { OpenRouterService } from '../openrouter/openrouter.service';
 
+import { PaymentService } from '../payment/payment.service';
+
 /**
  * BusinessService — Phase 1: AI Business Onboarding Chatbot.
  *
@@ -17,6 +19,7 @@ export class BusinessService {
     private readonly firebase: FirebaseService,
     private readonly integrations: IntegrationsService,
     private readonly openRouter: OpenRouterService,
+    private readonly paymentService: PaymentService,
   ) {}
 
   /** The 14 structured onboarding fields */
@@ -632,23 +635,25 @@ export class BusinessService {
   }
 
   async upgradePlan(businessId: string, planName: string) {
+    const normalizedPlan = (planName || '').toUpperCase();
+    
+    // For paid plans, create Instamojo payment request link
+    if (normalizedPlan !== 'FREE') {
+      return this.paymentService.createPaymentRequest({
+        businessId,
+        plan: normalizedPlan,
+      });
+    }
+
     const subs = await this.firebase.getSubscriptionsByBusinessId(businessId);
     let activeSub = subs.find((s: any) => s.status === 'ACTIVE');
-
-    const planCosts: Record<string, number> = {
-      FREE: 0,
-      STARTER: 19.00,
-      PRO: 49.00,
-      ENTERPRISE: 199.00
-    };
-    const amount = planCosts[planName.toUpperCase()] || 0;
 
     const startDate = new Date();
     const expiryDate = new Date();
     expiryDate.setMonth(expiryDate.getMonth() + 1);
 
     const subData = {
-      plan: planName.toUpperCase(),
+      plan: 'FREE',
       status: 'ACTIVE',
       startDate: startDate.toISOString(),
       expiryDate: expiryDate.toISOString(),
@@ -661,19 +666,6 @@ export class BusinessService {
     } else {
       activeSub = await this.firebase.createSubscription({ businessId, ...subData });
     }
-
-    const invoiceId = `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`;
-    await this.firebase.createPaymentRecord({
-      businessId,
-      invoiceId,
-      paymentDate: startDate.toISOString(),
-      planPurchased: planName.toUpperCase(),
-      amountPaid: amount,
-      paymentMethod: 'Credit Card',
-      transactionId: `TXN-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
-      status: 'PAID',
-      invoiceDownloadUrl: `/invoices/${invoiceId}.pdf`,
-    });
 
     return { success: true, subscription: activeSub };
   }

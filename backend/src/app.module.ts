@@ -10,6 +10,7 @@ import { AssistantModule } from './assistant/assistant.module';
 import { ContentModule } from './content/content.module';
 import { LeadsModule } from './leads/leads.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
+import { PaymentModule } from './payment/payment.module';
 // AI — OpenRouter replaces Gemini
 import { OpenRouterModule } from './openrouter/openrouter.module';
 
@@ -26,6 +27,7 @@ import { OpenRouterModule } from './openrouter/openrouter.module';
     SupportModule,
     AdminModule,
     AssistantModule,
+    PaymentModule,
     // Phase 7 — future features
     ContentModule,
     LeadsModule,
