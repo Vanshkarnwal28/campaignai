@@ -34,6 +34,8 @@ export interface CalendarFilterOptions {
  * All business context is sourced from BusinessIntelligenceService.getBusinessContext(businessId).
  * All AI calls flow through PromptBuilderService → AiService → OpenRouter.
  */
+import { GraphicGeneratorService } from './graphic-generator.service';
+
 @Injectable()
 export class ContentService {
   private readonly logger = new Logger(ContentService.name);
@@ -43,7 +45,135 @@ export class ContentService {
     private readonly aiService: AiService,
     private readonly businessIntelligence: BusinessIntelligenceService,
     private readonly promptBuilder: PromptBuilderService,
+    private readonly graphicGenerator: GraphicGeneratorService,
   ) {}
+
+  /**
+   * Generates a 1080x1080 pixel branded social graphic customized to the business vibe,
+   * overlays business name & offer text, uploads PNG buffer to Firebase Storage,
+   * and returns the public download URL.
+   */
+  async generateBrandedGraphic(
+    businessId: string,
+    offerTextOverride?: string,
+  ) {
+    if (!businessId) {
+      throw new BadRequestException('businessId is required');
+    }
+
+    // 1. Fetch business workspace and profile parameters from Firestore
+    const workspace = (await this.firebase.workspacesDao?.findById(businessId)) || (await this.firebase.getBusinessById(businessId));
+    if (!workspace) {
+      throw new NotFoundException(`Workspace for business ${businessId} not found in Firestore`);
+    }
+
+    const profile = await this.firebase.getBusinessProfile(businessId);
+
+    const businessName = workspace.name || profile?.businessName || 'Our Business';
+    const vibe = workspace.vibe || profile?.brandTone || profile?.brandVoice || 'Professional & Trustworthy';
+    const niche = workspace.niche || profile?.businessCategory || profile?.industry || 'Exclusive Promotion';
+    const offerText = offerTextOverride || workspace.currentOffer || profile?.currentOffer || profile?.businessUSP || 'SPECIAL 30% OFF PROMOTION!';
+
+    this.logger.log(`Generating 1080x1080 graphic for ${businessName} | Vibe: ${vibe} | Offer: "${offerText.substring(0, 40)}..."`);
+
+    // 2. Generate 1080x1080 PNG Buffer via GraphicGeneratorService (@napi-rs/canvas)
+    const pngBuffer = await this.graphicGenerator.generateBrandedGraphicBuffer({
+      businessName,
+      offerText,
+      vibe,
+      niche,
+    });
+
+    // 3. Upload PNG Buffer to Firebase Storage
+    const timestamp = Date.now();
+    const destinationPath = `graphics/${businessId}/${timestamp}_branded_graphic.png`;
+
+    const uploadResult = await this.firebase.uploadFileBuffer(pngBuffer, destinationPath, 'image/png');
+
+    return {
+      success: true,
+      publicUrl: uploadResult.publicUrl,
+      storagePath: uploadResult.storagePath,
+      businessId,
+      businessName,
+      vibe,
+      niche,
+      offerText,
+      dimensions: '1080x1080',
+    };
+  }
+
+  /**
+   * Generates Instagram-ready content (caption + 15 hashtags) by pulling
+   * business context (niche, vibe, currentOffer) directly from Firestore.
+   */
+  async generateInstagramPost(
+    businessId: string,
+    topic?: string,
+    offerOverride?: string,
+  ) {
+    if (!businessId) {
+      throw new BadRequestException('businessId is required');
+    }
+
+    // 1. Fetch business workspace and profile from Firestore
+    const workspace = (await this.firebase.workspacesDao?.findById(businessId)) || (await this.firebase.getBusinessById(businessId));
+    if (!workspace) {
+      throw new NotFoundException(`Workspace for business ${businessId} not found in Firestore`);
+    }
+
+    const profile = await this.firebase.getBusinessProfile(businessId);
+
+    const businessContext = {
+      businessName: workspace.name || profile?.businessName || 'Our Business',
+      niche: workspace.niche || profile?.businessCategory || profile?.industry || 'General Business',
+      vibe: workspace.vibe || profile?.brandTone || profile?.brandVoice || 'Professional & Engaging',
+      currentOffer: offerOverride || workspace.currentOffer || profile?.currentOffer || profile?.businessUSP || 'Special Promotional Offer',
+      targetAudience: profile?.targetAudience || 'General Audience',
+      location: profile?.location || 'Nationwide',
+    };
+
+    this.logger.log(`Generating Instagram post with Firestore context for business ${businessId} (Niche: ${businessContext.niche}, Vibe: ${businessContext.vibe})`);
+
+    // 2. Call Gemini AI generator with 15-second timeout and strict JSON schema
+    const result = await this.aiService.generateInstagramContent(businessContext, {
+      topic,
+      offer: offerOverride,
+    });
+
+    // 2b. Generate AI creative image via OpenRouter
+    const imagePrompt = `High quality social media ad creative for ${businessContext.businessName} in ${businessContext.niche} industry. ${topic ? `Topic: ${topic}.` : ''} Vibe: ${businessContext.vibe}`;
+    const imageResult = await this.aiService.generateImage(imagePrompt);
+
+    // 3. Save post draft to Firestore social_posts collection using SocialPostsDao
+    let savedPost: any = null;
+    if (this.firebase.socialPostsDao) {
+      try {
+        savedPost = await this.firebase.socialPostsDao.create({
+          workspaceId: businessId,
+          authorId: (workspace as any).ownerId || 'system',
+          caption: `${result.caption}\n\n${result.hashtags.join(' ')}`,
+          imageUrl: imageResult.imageUrl,
+          scheduleTime: new Date(Date.now() + 24 * 3600 * 1000),
+          status: 'DRAFT',
+        });
+      } catch (e: any) {
+        this.logger.warn(`Could not save post draft to social_posts: ${e.message}`);
+      }
+    }
+
+    return {
+      caption: result.caption,
+      hashtags: result.hashtags,
+      imageUrl: imageResult.imageUrl,
+      imageModel: imageResult.model,
+      businessId,
+      workspaceName: businessContext.businessName,
+      niche: businessContext.niche,
+      vibe: businessContext.vibe,
+      postId: savedPost?.id || null,
+    };
+  }
 
   // ─── Validation Helpers ───────────────────────────────────────────────────
 
@@ -80,6 +210,7 @@ export class ContentService {
    */
   private validateStatusTransition(currentStatus: string, targetStatus: string) {
     const validTransitions: Record<string, string[]> = {
+      PENDING: ['SCHEDULED', 'DRAFT', 'PENDING'],
       DRAFT: ['APPROVED', 'REJECTED', 'DRAFT'],
       REJECTED: ['DRAFT', 'APPROVED', 'REJECTED'],
       APPROVED: ['SCHEDULED', 'DRAFT', 'REJECTED', 'APPROVED'],

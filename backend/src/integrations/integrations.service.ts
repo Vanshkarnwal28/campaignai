@@ -323,6 +323,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
       'pages_show_list',
       'pages_read_engagement',
       'instagram_basic',
+      'instagram_content_publish',
     ].join(',');
     return `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${state}&auth_type=rerequest`;
   }
@@ -402,6 +403,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
           'pages_show_list',
           'pages_read_engagement',
           'instagram_basic',
+          'instagram_content_publish',
         ];
         const missingRequired = requiredPermissions.filter(req => !granted.includes(req));
         if (missingRequired.length > 0) {
@@ -422,6 +424,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
       const firstPage = pages[0];
       const metaPageId = firstPage?.id || 'page_987654321';
       const metaPageName = firstPage?.name || 'Love for Pure Facebook Page';
+      const metaPageAccessToken = firstPage?.accessToken || accessToken;
       const metaIgBusinessAccountId = instagramAccounts[0]?.id || firstPage?.instagram_business_account?.id || 'ig_554433221';
       const metaAdAccountId = adAccounts[0]?.id || 'act_10158291038471';
 
@@ -434,6 +437,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
         metaIgBusinessAccountId,
         metaAdAccountId,
         metaAccessToken: accessToken,
+        metaPageAccessToken,
         metaTokenExpiry: expiry,
         selectedAdAccountId: metaAdAccountId,
         selectedPageId: metaPageId,
@@ -449,6 +453,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
             metaIgBusinessAccountId,
             metaAdAccountId,
             metaAccessToken: accessToken,
+            metaPageAccessToken,
             metaTokenExpiry: expiry,
           });
         } catch (e: any) {
@@ -947,7 +952,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
     imageUrl?: string,
   ): Promise<{ success: boolean; pagePostId?: string; error?: string }> {
     const workspace = (await this.firebase.workspacesDao?.findById(businessId)) || (await this.firebase.getBusinessById(businessId));
-    const accessToken = workspace?.metaAccessToken;
+    const accessToken = workspace?.metaPageAccessToken || workspace?.metaAccessToken;
     const pageId = workspace?.metaPageId || workspace?.selectedPageId;
 
     if (this.isMock || !accessToken || accessToken.startsWith('mock_')) {

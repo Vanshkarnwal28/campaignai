@@ -23,6 +23,7 @@ interface ContentCalendarProps {
 }
 
 export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, onToast }) => {
+  const defaultScheduleDate = new Date().toISOString().slice(0, 10);
   // const [loading, setLoading] = useState(false);
   const [calendarEntries, setCalendarEntries] = useState<any[]>([]);
 
@@ -30,7 +31,7 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [postTypeFilter, setPostTypeFilter] = useState<string>('ALL');
-  const [currentDate, setCurrentDate] = useState<Date>(new Date(2026, 6, 1)); // July 2026
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
 
   // Google Sheets Selection & Editing State
   const [selectedCell, setSelectedCell] = useState<{ rowId: string; colName: string } | null>(null);
@@ -44,13 +45,14 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
   // Custom new entry form state
   const [newEntryForm, setNewEntryForm] = useState({
     dayName: 'Monday',
+    platform: 'both',
     postType: 'Graphic',
     contentIdea: '',
     contentDescription: '',
     caption: '',
     hashtagsStr: '',
     status: 'PENDING',
-    scheduledDate: '2026-07-27',
+    scheduledDate: defaultScheduleDate,
     scheduledTime: '10:00'
   });
 
@@ -314,7 +316,7 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
       const payload = {
         businessId,
         dayName: newEntryForm.dayName,
-        platform: 'Instagram',
+        platform: newEntryForm.platform,
         scheduledTime: scheduledTime.toISOString(),
         contentIdea: newEntryForm.contentIdea,
         contentDescription: newEntryForm.contentDescription,
@@ -329,13 +331,14 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
       setIsAddModalOpen(false);
       setNewEntryForm({
         dayName: 'Monday',
+        platform: 'both',
         postType: 'Graphic',
         contentIdea: '',
         contentDescription: '',
         caption: '',
         hashtagsStr: '',
         status: 'PENDING',
-        scheduledDate: '2026-07-27',
+        scheduledDate: defaultScheduleDate,
         scheduledTime: '10:00'
       });
       await fetchCalendar();
@@ -876,6 +879,18 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
                     <option value="POSTED">Posted</option>
                   </select>
                 </div>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Publish To</label>
+                  <select
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#f8fafc', outline: 'none' }}
+                    value={newEntryForm.platform}
+                    onChange={(e) => setNewEntryForm({ ...newEntryForm, platform: e.target.value })}
+                  >
+                    <option value="both">Facebook + Instagram</option>
+                    <option value="facebook">Facebook only</option>
+                    <option value="instagram">Instagram only</option>
+                  </select>
+                </div>
               </div>
 
               <div>
@@ -985,6 +1000,19 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
                     <option value="Poll">Poll</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Publish To</label>
+                <select
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', background: '#f8fafc', outline: 'none' }}
+                  value={newEntryForm.platform}
+                  onChange={(e) => setNewEntryForm({ ...newEntryForm, platform: e.target.value })}
+                >
+                  <option value="both">Facebook + Instagram</option>
+                  <option value="facebook">Facebook only</option>
+                  <option value="instagram">Instagram only</option>
+                </select>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
