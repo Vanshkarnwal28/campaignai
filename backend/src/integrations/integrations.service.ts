@@ -322,6 +322,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
       'business_management',
       'pages_show_list',
       'pages_read_engagement',
+      'instagram_basic',
     ].join(',');
     return `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scopes}&response_type=code&state=${state}&auth_type=rerequest`;
   }
@@ -400,6 +401,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
           'business_management',
           'pages_show_list',
           'pages_read_engagement',
+          'instagram_basic',
         ];
         const missingRequired = requiredPermissions.filter(req => !granted.includes(req));
         if (missingRequired.length > 0) {
