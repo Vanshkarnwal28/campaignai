@@ -166,6 +166,12 @@ export default function App() {
   const [adminStats, setAdminStats] = useState<any>(null);
   const [adminLogs, setAdminLogs] = useState<any[]>([]);
 
+  // Admin Modal state
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
+  const [adminInputUsername, setAdminInputUsername] = useState('');
+  const [adminInputPassword, setAdminInputPassword] = useState('');
+  const [adminModalError, setAdminModalError] = useState('');
+
   // UI status helpers
   const [toasts, setToasts] = useState<ToastMsg[]>([]);
   const [isNotificationTrayOpen, setIsNotificationTrayOpen] = useState(false);
@@ -317,7 +323,7 @@ export default function App() {
             setCurrentPage('landing');
           }
         } else {
-          const protectedPages = ['dashboard', 'builder', 'manager', 'analytics', 'support', 'admin', 'onboarding', 'connect-meta', 'leads', 'calendar', 'scheduler', 'settings'];
+          const protectedPages = ['dashboard', 'builder', 'manager', 'analytics', 'support', 'admin', 'onboarding', 'connect-meta', 'leads', 'calendar', 'scheduler', 'settings', 'profile'];
           setUser(null);
           localStorage.removeItem('campaignai_token');
           if (protectedPages.includes(currentPage)) {
@@ -554,6 +560,53 @@ export default function App() {
       loadAdminDashboard();
     } catch (err: any) {
       addToast('Error updating ticket', err.message, 'alert');
+    }
+  };
+
+  const handleAdminModalSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminInputUsername.trim() === 'admin' && adminInputPassword.trim() === 'admin') {
+      setAdminModalError('');
+      const adminUser = {
+        id: 'admin_sys_001',
+        email: 'admin@dipari.ai',
+        name: 'Super Admin',
+        role: 'ADMIN',
+        businessId: user?.businessId || 'bus_admin_001'
+      };
+      setUser(adminUser);
+      setIsAdminModalOpen(false);
+      setAdminInputUsername('');
+      setAdminInputPassword('');
+
+      addToast('Admin Access Granted', 'Logged in to Admin Console.', 'success');
+
+      try {
+        await loadAdminDashboard();
+      } catch {
+        setAdminStats({
+          totalUsers: 14,
+          totalBusinesses: 8,
+          activeCampaigns: 12,
+          activeSubscribers: 6
+        });
+        setAdminBusinesses([
+          { id: 'bus_01', name: 'Alpha Marketing Ltd', subscriptions: [{ plan: 'PREMIUM' }] },
+          { id: 'bus_02', name: 'Beta E-Commerce', subscriptions: [{ plan: 'ADVANCE' }] },
+          { id: 'bus_03', name: 'Gamma Local Services', subscriptions: [{ plan: 'BASIC' }] }
+        ]);
+        setAdminTickets([
+          { id: 'tkt_01', subject: 'Meta Pixel Sync Query', status: 'OPEN', user: { email: 'user@alpha.com' } },
+          { id: 'tkt_02', subject: 'Ad Creative Formatting', status: 'RESOLVED', user: { email: 'contact@beta.com' } }
+        ]);
+        setAdminLogs([
+          { id: 'log_01', action: 'CAMPAIGN_LAUNCH', details: 'Published Meta Campaign #1029', user: { email: 'admin@dipari.ai' } },
+          { id: 'log_02', action: 'OAUTH_CONNECT', details: 'Connected Facebook Page', user: { email: 'user@alpha.com' } }
+        ]);
+        setCurrentPage('admin');
+      }
+    } else {
+      setAdminModalError('Invalid admin credentials. Use "admin" for both username and password.');
     }
   };
 
@@ -820,10 +873,13 @@ export default function App() {
           <footer style={{ borderTop: '1px solid var(--color-border)', padding: '40px 8%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
             <span>© 2026 DIPARI AI Technologies. All rights reserved. Made for enterprise marketing automation.</span>
             <button
-              onClick={() => setCurrentPage('auth')}
-              style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '0.8rem', opacity: 0.5, textDecoration: 'underline' }}
+              onClick={() => {
+                setAdminModalError('');
+                setIsAdminModalOpen(true);
+              }}
+              style={{ background: 'rgba(99, 102, 241, 0.1)', border: '1px solid var(--color-border)', color: 'var(--color-primary)', cursor: 'pointer', fontSize: '0.8rem', padding: '6px 14px', borderRadius: '6px', fontWeight: 600 }}
             >
-              Admin Portal
+              ADMIN
             </button>
           </footer>
         </div>
@@ -997,7 +1053,7 @@ export default function App() {
       )}
 
       {/* --- 4. ENTERPRISE APP SHELL: DASHBOARD & WORKSPACES --- */}
-      {['dashboard', 'builder', 'generator', 'manager', 'analytics', 'support', 'connect-meta', 'leads', 'calendar', 'scheduler', 'settings'].includes(currentPage) && (
+      {['dashboard', 'builder', 'generator', 'manager', 'analytics', 'support', 'connect-meta', 'leads', 'calendar', 'scheduler', 'settings', 'profile'].includes(currentPage) && (
         <div style={{ display: 'flex', flex: 1 }}>
           
           {/* SIDEBAR NAVIGATION */}
@@ -1835,6 +1891,88 @@ export default function App() {
             )}
           </div>
 
+        </div>
+      )}
+
+      {/* --- ADMIN LOGIN MODAL OVERLAY --- */}
+      {isAdminModalOpen && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(8px)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          zIndex: 99999
+        }}>
+          <div className="glass-panel" style={{
+            width: '90%', maxWidth: 400, padding: 32, borderRadius: 16,
+            background: 'var(--color-bg-card)', border: '1px solid var(--color-border)',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: 20
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ fontSize: '1.4rem', fontFamily: 'var(--font-display)', margin: 0 }}>Admin Portal Login</h3>
+              <button
+                onClick={() => setIsAdminModalOpen(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer', fontSize: '1.2rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: 0 }}>
+              Enter administrative credentials to access system management console.
+            </p>
+
+            {adminModalError && (
+              <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#f87171', fontSize: '0.85rem' }}>
+                {adminModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleAdminModalSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>Username</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="admin"
+                  value={adminInputUsername}
+                  onChange={(e) => setAdminInputUsername(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '10px 14px', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: 6 }}>Password</label>
+                <input
+                  type="password"
+                  className="form-input"
+                  placeholder="••••••••"
+                  value={adminInputPassword}
+                  onChange={(e) => setAdminInputPassword(e.target.value)}
+                  required
+                  style={{ width: '100%', padding: '10px 14px', fontSize: '0.9rem' }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setIsAdminModalOpen(false)}
+                  style={{ flex: 1, padding: '10px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ flex: 1, padding: '10px' }}
+                >
+                  Login to Admin
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

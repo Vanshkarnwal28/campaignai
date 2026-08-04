@@ -34,6 +34,8 @@ export class SchedulerService {
     headline?: string;
     hashtags?: string[];
     imageUrl?: string;
+    imageOverlayText?: string;
+    profileBio?: string;
     platform: string; // 'Facebook' | 'Instagram'
     scheduledTime: Date | string;
     postType?: string;
@@ -49,6 +51,8 @@ export class SchedulerService {
       headline: data.headline || '',
       hashtags: data.hashtags || [],
       imageUrl: data.imageUrl || null,
+      imageOverlayText: data.imageOverlayText || '',
+      profileBio: data.profileBio || '',
       platform: data.platform,
       scheduledTime,
       postType: data.postType || 'Image Post',

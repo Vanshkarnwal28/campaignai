@@ -660,6 +660,8 @@ export const api = {
       headline?: string;
       hashtags?: string[];
       imageUrl?: string;
+      imageOverlayText?: string;
+      profileBio?: string;
       postType?: string;
     }) {
       const res = await fetch(`${BASE_URL}/scheduler/schedule`, {

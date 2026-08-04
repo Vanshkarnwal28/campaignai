@@ -63,23 +63,24 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
     try {
       const res = await api.business.getProfileDetails(businessId);
       if (res) {
+        const profile = res.profile || {};
         setProfileForm({
-          businessName: res.profile.businessName || '',
-          ownerName: res.profile.ownerName || '',
-          contactNumber: res.profile.contactNumber || '',
-          whatsAppNumber: res.profile.whatsAppNumber || '',
-          email: res.profile.email || '',
-          address: res.profile.address || '',
-          city: res.profile.city || '',
-          state: res.profile.state || '',
-          country: res.profile.country || '',
-          pincode: res.profile.pincode || '',
-          websiteUrl: res.profile.websiteUrl || '',
-          hasWebsite: res.profile.hasWebsite ?? (res.profile.websiteUrl !== 'Not Applicable'),
-          logoUrl: res.profile.logoUrl || '',
+          businessName: profile.businessName || '',
+          ownerName: profile.ownerName || '',
+          contactNumber: profile.contactNumber || '',
+          whatsAppNumber: profile.whatsAppNumber || '',
+          email: profile.email || '',
+          address: profile.address || '',
+          city: profile.city || '',
+          state: profile.state || '',
+          country: profile.country || '',
+          pincode: profile.pincode || '',
+          websiteUrl: profile.websiteUrl || '',
+          hasWebsite: profile.hasWebsite ?? (profile.websiteUrl !== 'Not Applicable'),
+          logoUrl: profile.logoUrl || '',
         });
         setSubscription(res.subscription || {});
-        setPayments(res.payments || []);
+        setPayments(Array.isArray(res.payments) ? res.payments : []);
       }
     } catch (err: any) {
       onToast('Error loading profile', err.message || 'Could not fetch profile information', 'alert');

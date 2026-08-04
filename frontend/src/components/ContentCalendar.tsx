@@ -41,6 +41,14 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
   const [editingEntry, setEditingEntry] = useState<any | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [previewEntry, setPreviewEntry] = useState<any | null>(null);
+  const [previewDraft, setPreviewDraft] = useState({
+    bio: '',
+    caption: '',
+    imageUrl: '',
+    imageOverlayText: '',
+    platform: 'instagram',
+  });
   
   // Custom new entry form state
   const [newEntryForm, setNewEntryForm] = useState({
@@ -198,22 +206,63 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
   };
 
   const handleSchedulePost = async (entry: any) => {
-    
+    setPreviewEntry(entry);
+    setPreviewDraft({
+      bio: entry.profileBio || entry.contentDescription || '',
+      caption: entry.caption || '',
+      imageUrl: entry.imageUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800',
+      imageOverlayText: entry.imageOverlayText || entry.contentIdea || '',
+      platform: String(entry.platform || '').toLowerCase() === 'facebook' ? 'facebook' : 'instagram',
+    });
+  };
+
+  const handlePreviewImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onToast('Invalid image', 'Please choose a PNG, JPG, or WEBP image.', 'alert');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setPreviewDraft(prev => ({ ...prev, imageUrl: String(reader.result || '') }));
+    reader.readAsDataURL(file);
+  };
+
+  const handleConfirmSchedule = async () => {
+    if (!previewEntry) return;
+    if (!previewDraft.caption.trim()) {
+      onToast('Caption required', 'Add post text before scheduling.', 'alert');
+      return;
+    }
+    if (previewDraft.imageUrl.startsWith('data:')) {
+      onToast('Use a public image URL', 'Local image previews cannot be fetched by Meta. Paste a public image URL before scheduling.', 'alert');
+      return;
+    }
     try {
+      await api.content.updateEntry(previewEntry.id, {
+        caption: previewDraft.caption,
+        contentDescription: previewDraft.bio,
+        profileBio: previewDraft.bio,
+        imageUrl: previewDraft.imageUrl,
+        imageOverlayText: previewDraft.imageOverlayText,
+      });
       await api.scheduler.schedule({
         businessId,
-        calendarEntryId: entry.id,
-        caption: entry.caption,
-        headline: entry.contentIdea || entry.headline,
-        hashtags: entry.hashtags || [],
-        imageUrl: entry.imageUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800',
-        platform: entry.platform || 'Instagram',
-        scheduledTime: entry.scheduledTime ? new Date(entry.scheduledTime).toISOString() : new Date().toISOString(),
-        postType: entry.postType,
+        calendarEntryId: previewEntry.id,
+        caption: previewDraft.caption,
+        headline: previewEntry.contentIdea || previewEntry.headline,
+        hashtags: previewEntry.hashtags || [],
+        imageUrl: previewDraft.imageUrl,
+        imageOverlayText: previewDraft.imageOverlayText,
+        profileBio: previewDraft.bio,
+        platform: previewDraft.platform === 'facebook' ? 'Facebook' : 'Instagram',
+        scheduledTime: previewEntry.scheduledTime ? new Date(previewEntry.scheduledTime).toISOString() : new Date().toISOString(),
+        postType: previewEntry.postType,
       });
 
-      await api.content.updateEntry(entry.id, { status: 'SCHEDULED' });
+      await api.content.updateEntry(previewEntry.id, { status: 'SCHEDULED' });
       onToast('Scheduled', `Post added to scheduler queue!`, 'success');
+      setPreviewEntry(null);
       await fetchCalendar();
     } catch (err: any) {
       onToast('Scheduling Failed', err.message, 'alert');
@@ -1095,6 +1144,63 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
               </div>
             </form>
 
+          </div>
+        </div>
+      )}
+
+      {previewEntry && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(15, 23, 42, 0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div style={{ width: 'min(1080px, 100%)', maxHeight: '94vh', overflowY: 'auto', background: '#ffffff', borderRadius: '18px', padding: '24px', boxShadow: '0 25px 60px rgba(15,23,42,.35)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <div>
+                <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.15rem' }}>Review post before scheduling</h3>
+                <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '0.78rem' }}>Edit the profile bio, post copy, image, and text shown on the image.</p>
+              </div>
+              <button type="button" onClick={() => setPreviewEntry(null)} style={{ border: 'none', background: '#f1f5f9', borderRadius: '8px', padding: '8px 12px', cursor: 'pointer' }}><X size={16} /></button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 380px) 1fr', gap: '24px', alignItems: 'start' }}>
+              <div>
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <button type="button" onClick={() => setPreviewDraft(prev => ({ ...prev, platform: 'facebook' }))} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: previewDraft.platform === 'facebook' ? '2px solid #1877f2' : '1px solid #cbd5e1', background: previewDraft.platform === 'facebook' ? '#eff6ff' : '#fff', color: '#1e293b', cursor: 'pointer', fontWeight: 700 }}>Facebook</button>
+                  <button type="button" onClick={() => setPreviewDraft(prev => ({ ...prev, platform: 'instagram' }))} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: previewDraft.platform === 'instagram' ? '2px solid #d946ef' : '1px solid #cbd5e1', background: previewDraft.platform === 'instagram' ? '#fdf4ff' : '#fff', color: '#1e293b', cursor: 'pointer', fontWeight: 700 }}>Instagram</button>
+                </div>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden', background: '#fff' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
+                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: previewDraft.platform === 'facebook' ? '#1877f2' : 'linear-gradient(135deg,#f97316,#d946ef)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800 }}>H</div>
+                    <div><strong style={{ display: 'block', fontSize: '0.8rem' }}>helloworld</strong><span style={{ color: '#64748b', fontSize: '0.68rem' }}>{previewDraft.bio || 'Your profile bio'}</span></div>
+                  </div>
+                  <div style={{ position: 'relative', aspectRatio: '1', background: '#e2e8f0' }}>
+                    <img src={previewDraft.imageUrl} alt="Social post preview" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    {previewDraft.imageOverlayText && <div style={{ position: 'absolute', left: '8%', right: '8%', bottom: '9%', padding: '12px 10px', borderRadius: '8px', background: 'rgba(15,23,42,.72)', color: '#fff', textAlign: 'center', fontWeight: 800, fontSize: 'clamp(.75rem, 2vw, 1.1rem)' }}>{previewDraft.imageOverlayText}</div>}
+                  </div>
+                  <div style={{ padding: '12px', fontSize: '0.78rem', color: '#334155', lineHeight: 1.45 }}><strong>helloworld</strong> {previewDraft.caption}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Profile bio
+                  <input value={previewDraft.bio} onChange={e => setPreviewDraft(prev => ({ ...prev, bio: e.target.value }))} style={{ display: 'block', width: '100%', marginTop: 5, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }} placeholder="Short profile bio shown in the preview" />
+                </label>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Post caption
+                  <textarea value={previewDraft.caption} onChange={e => setPreviewDraft(prev => ({ ...prev, caption: e.target.value }))} rows={6} style={{ display: 'block', width: '100%', marginTop: 5, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8, resize: 'vertical' }} />
+                </label>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Text embedded in image
+                  <input value={previewDraft.imageOverlayText} onChange={e => setPreviewDraft(prev => ({ ...prev, imageOverlayText: e.target.value }))} style={{ display: 'block', width: '100%', marginTop: 5, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }} placeholder="Headline shown over the image" />
+                </label>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Public image URL
+                  <input value={previewDraft.imageUrl.startsWith('data:') ? '' : previewDraft.imageUrl} onChange={e => setPreviewDraft(prev => ({ ...prev, imageUrl: e.target.value }))} style={{ display: 'block', width: '100%', marginTop: 5, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: 8 }} placeholder="https://..." />
+                </label>
+                <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569' }}>Choose local image for preview
+                  <input type="file" accept="image/png,image/jpeg,image/webp" onChange={handlePreviewImageUpload} style={{ display: 'block', marginTop: 7 }} />
+                </label>
+                <p style={{ margin: 0, color: '#64748b', fontSize: '0.72rem' }}>The overlay is shown in the preview. Meta must receive a public image URL, so replace a local preview image with its hosted URL before scheduling.</p>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: 4 }}>
+                  <button type="button" onClick={() => setPreviewEntry(null)} style={{ padding: '10px 16px', border: '1px solid #cbd5e1', background: '#fff', borderRadius: 8, cursor: 'pointer' }}>Back</button>
+                  <button type="button" onClick={handleConfirmSchedule} style={{ padding: '10px 18px', border: 'none', background: '#4f46e5', color: '#fff', borderRadius: 8, cursor: 'pointer', fontWeight: 700 }}>Approve & schedule</button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
