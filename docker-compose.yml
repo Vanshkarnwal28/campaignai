@@ -23,6 +23,17 @@ services:
       - redisdata:/data
     restart: always
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: campaignai-rabbitmq
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    restart: always
+
 volumes:
   pgdata:
   redisdata:
+  rabbitmqdata:

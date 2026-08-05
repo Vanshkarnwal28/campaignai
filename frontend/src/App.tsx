@@ -32,6 +32,7 @@ import {
   Menu,
   Calendar as CalendarIcon,
   Settings as SettingsIcon,
+  Sparkles,
 } from 'lucide-react';
 import { api } from './services/api';
 import { auth } from './services/firebase';
@@ -42,6 +43,7 @@ import CampaignGenerator from './components/CampaignGenerator';
 import ConnectMeta from './components/ConnectMeta';
 import { ContentCalendar } from './components/ContentCalendar';
 import { SchedulerPanel } from './components/SchedulerPanel';
+import { InstantPostsPanel } from './components/InstantPostsPanel';
 import { ProfileScreen } from './components/ProfileScreen';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SmartInputControls } from './components/SmartInputControls';
@@ -59,7 +61,7 @@ interface ToastMsg {
 export default function App() {
   // Theme & Navigation State
   const [isLight, setIsLight] = useState(true);
-  const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'admin-login' | 'onboarding' | 'blueprint' | 'dashboard' | 'builder' | 'generator' | 'manager' | 'analytics' | 'support' | 'admin' | 'connect-meta' | 'calendar' | 'scheduler' | 'settings' | 'profile'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'admin-login' | 'onboarding' | 'blueprint' | 'dashboard' | 'builder' | 'generator' | 'manager' | 'analytics' | 'support' | 'admin' | 'connect-meta' | 'calendar' | 'scheduler' | 'instant-posts' | 'settings' | 'profile'>('landing');
   // Auth state
   const [user, setUser] = useState<any>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -323,7 +325,7 @@ export default function App() {
             setCurrentPage('landing');
           }
         } else {
-          const protectedPages = ['dashboard', 'builder', 'manager', 'analytics', 'support', 'admin', 'onboarding', 'connect-meta', 'leads', 'calendar', 'scheduler', 'settings', 'profile'];
+          const protectedPages = ['dashboard', 'builder', 'manager', 'analytics', 'support', 'admin', 'onboarding', 'connect-meta', 'leads', 'calendar', 'scheduler', 'instant-posts', 'settings', 'profile'];
           setUser(null);
           localStorage.removeItem('campaignai_token');
           if (protectedPages.includes(currentPage)) {
@@ -567,43 +569,16 @@ export default function App() {
     e.preventDefault();
     if (adminInputUsername.trim() === 'admin' && adminInputPassword.trim() === 'admin') {
       setAdminModalError('');
-      const adminUser = {
-        id: 'admin_sys_001',
-        email: 'admin@dipari.ai',
-        name: 'Super Admin',
-        role: 'ADMIN',
-        businessId: user?.businessId || 'bus_admin_001'
-      };
-      setUser(adminUser);
-      setIsAdminModalOpen(false);
-      setAdminInputUsername('');
-      setAdminInputPassword('');
-
-      addToast('Admin Access Granted', 'Logged in to Admin Console.', 'success');
-
       try {
+        const res = await api.auth.adminLogin('admin', 'admin');
+        setUser(res.user);
+        setIsAdminModalOpen(false);
+        setAdminInputUsername('');
+        setAdminInputPassword('');
+        addToast('Admin Access Granted', 'Logged in to Admin Console.', 'success');
         await loadAdminDashboard();
-      } catch {
-        setAdminStats({
-          totalUsers: 14,
-          totalBusinesses: 8,
-          activeCampaigns: 12,
-          activeSubscribers: 6
-        });
-        setAdminBusinesses([
-          { id: 'bus_01', name: 'Alpha Marketing Ltd', subscriptions: [{ plan: 'PREMIUM' }] },
-          { id: 'bus_02', name: 'Beta E-Commerce', subscriptions: [{ plan: 'ADVANCE' }] },
-          { id: 'bus_03', name: 'Gamma Local Services', subscriptions: [{ plan: 'BASIC' }] }
-        ]);
-        setAdminTickets([
-          { id: 'tkt_01', subject: 'Meta Pixel Sync Query', status: 'OPEN', user: { email: 'user@alpha.com' } },
-          { id: 'tkt_02', subject: 'Ad Creative Formatting', status: 'RESOLVED', user: { email: 'contact@beta.com' } }
-        ]);
-        setAdminLogs([
-          { id: 'log_01', action: 'CAMPAIGN_LAUNCH', details: 'Published Meta Campaign #1029', user: { email: 'admin@dipari.ai' } },
-          { id: 'log_02', action: 'OAUTH_CONNECT', details: 'Connected Facebook Page', user: { email: 'user@alpha.com' } }
-        ]);
-        setCurrentPage('admin');
+      } catch (err: any) {
+        setAdminModalError(err.message || 'Admin login failed.');
       }
     } else {
       setAdminModalError('Invalid admin credentials. Use "admin" for both username and password.');
@@ -1053,7 +1028,7 @@ export default function App() {
       )}
 
       {/* --- 4. ENTERPRISE APP SHELL: DASHBOARD & WORKSPACES --- */}
-      {['dashboard', 'builder', 'generator', 'manager', 'analytics', 'support', 'connect-meta', 'leads', 'calendar', 'scheduler', 'settings', 'profile'].includes(currentPage) && (
+      {['dashboard', 'builder', 'generator', 'manager', 'analytics', 'support', 'connect-meta', 'leads', 'calendar', 'scheduler', 'instant-posts', 'settings', 'profile'].includes(currentPage) && (
         <div style={{ display: 'flex', flex: 1 }}>
           
           {/* SIDEBAR NAVIGATION */}
@@ -1159,6 +1134,15 @@ export default function App() {
                 }}>
                   <Clock size={18} />
                   {!sidebarCollapsed && <span>Auto Scheduler</span>}
+                </button>
+                <button onClick={() => setCurrentPage('instant-posts')} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', width: '100%',
+                  border: 'none', borderRadius: 10, cursor: 'pointer', background: currentPage === 'instant-posts' ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                  color: currentPage === 'instant-posts' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                  transition: 'var(--transition-smooth)', textAlign: 'left', fontSize: '0.9rem'
+                }}>
+                  <Sparkles size={18} />
+                  {!sidebarCollapsed && <span>Instant Posts</span>}
                 </button>
 
                 <button onClick={() => setCurrentPage('connect-meta')} style={{
@@ -1657,6 +1641,10 @@ export default function App() {
               <main style={{ padding: 40 }}>
                 <SchedulerPanel businessId={user.businessId} onToast={addToast} />
               </main>
+            )}
+
+            {currentPage === 'instant-posts' && user?.businessId && (
+              <InstantPostsPanel businessId={user.businessId} onToast={addToast} />
             )}
 
             {/* --- PAGE: PROFILE --- */}

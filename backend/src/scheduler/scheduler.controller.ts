@@ -167,6 +167,12 @@ export class SchedulerController {
     return this.schedulerService.scheduleOrganicBatch(body);
   }
 
+  @Post('instant-week')
+  async scheduleInstantWeek(@Body() body: { businessId: string; count?: number; platforms?: string; timezone?: string }) {
+    if (!body?.businessId) return { success: false, message: 'businessId is required' };
+    return this.schedulerService.scheduleInstantWeek(body);
+  }
+
   /** GET /scheduler/calendar?businessId=xxx — Calendar view of all posts grouped by date */
   @Get('calendar')
   async getCalendarView(@Query('businessId') businessId: string) {

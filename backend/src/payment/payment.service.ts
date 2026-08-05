@@ -62,7 +62,7 @@ export class PaymentService {
 
     // Construct Webhook URL
     const backendHost = process.env.BACKEND_URL || 'http://localhost:3001';
-    const webhookUrl = `${backendHost}/api/payment/webhook`;
+    const webhookUrl = `${backendHost.replace(/\/$/, '')}/api/payment/webhook`;
 
     // 3. Prepare Form Data for Instamojo REST API v1.1
     const formData = new URLSearchParams();
@@ -79,7 +79,7 @@ export class PaymentService {
     try {
       this.logger.log(`Calling Instamojo API to create payment request: ${baseUrl}/api/1.1/payment-requests/`);
       const instamojoRes = await axios.post(
-        `${baseUrl}/api/1.1/payment-requests`,
+        `${baseUrl.replace(/\/$/, '')}/api/1.1/payment-requests/`,
         formData.toString(),
         {
           headers: {

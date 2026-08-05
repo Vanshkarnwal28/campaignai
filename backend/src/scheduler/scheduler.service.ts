@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { FirebaseService } from '../firebase/firebase.service';
 import { IntegrationsService } from '../integrations/integrations.service';
@@ -6,6 +6,7 @@ import { calculateNext10AMSlot } from '../utils/timezone-scheduler';
 import { publishOrganicSimultaneously } from '../lib/meta/organic-publisher';
 import { generateScheduleSlots, calculateNext10AM, ScheduleRule, isValidScheduleRule } from '../lib/scheduler/time-engine';
 import { PublishLogEntry } from '../firebase/firestore.schema';
+import { RabbitMqService } from './rabbitmq.service';
 
 /**
  * SchedulerService — Phase 3 & 4: AI Auto Scheduler + Meta Auto Posting.
@@ -14,13 +15,18 @@ import { PublishLogEntry } from '../firebase/firestore.schema';
  * Runs a cron job every 5 minutes to check for and publish due posts via Meta Graph API.
  */
 @Injectable()
-export class SchedulerService {
+export class SchedulerService implements OnModuleInit {
   private readonly logger = new Logger(SchedulerService.name);
 
   constructor(
     private readonly firebase: FirebaseService,
     private readonly integrations: IntegrationsService,
+    private readonly rabbitmq: RabbitMqService,
   ) {}
+
+  async onModuleInit() {
+    await this.rabbitmq.registerPublishHandler((postId) => this.publishSinglePost(postId));
+  }
 
   // ─── Schedule Management ──────────────────────────────────────────────────────
 
@@ -61,6 +67,7 @@ export class SchedulerService {
     });
 
     this.logger.log(`Post scheduled: ${post.id} for ${scheduledTime.toISOString()} on ${data.platform}`);
+    await this.rabbitmq.enqueueScheduledPost(post.id, scheduledTime);
     return { success: true, post };
   }
 
@@ -127,6 +134,7 @@ export class SchedulerService {
       scheduledTime,
       status: 'SCHEDULED',
     });
+    await this.rabbitmq.enqueueScheduledPost(postId, scheduledTime);
     this.logger.log(`Post rescheduled: ${postId} to ${scheduledTime.toISOString()}`);
     return { success: true, post: updated };
   }
@@ -148,6 +156,15 @@ export class SchedulerService {
     const post = (await this.firebase.getScheduledPostById(postId)) || (await this.firebase.socialPostsDao?.findById(postId));
     if (!post) {
       throw new NotFoundException(`Scheduled post ${postId} not found`);
+    }
+
+    if (post.status !== 'SCHEDULED') {
+      return { success: false, postId, skipped: true, reason: `Post is ${post.status}` };
+    }
+    const scheduledDate = post.scheduledTime?.toDate?.() || new Date(post.scheduledTime);
+    if (scheduledDate.getTime() > Date.now()) {
+      await this.rabbitmq.enqueueScheduledPost(postId, scheduledDate);
+      return { success: false, postId, skipped: true, reason: 'Post is not due yet' };
     }
 
     // Mark as PUBLISHING
@@ -403,6 +420,7 @@ export class SchedulerService {
     } as any);
 
     this.logger.log(`Organic post scheduled for 10:00 AM slot: ${post.id} at ${slotResult.formattedLocal} (${slotResult.isoString})`);
+    await this.rabbitmq.enqueueScheduledPost(post.id, scheduledTime);
 
     return {
       success: true,
@@ -461,6 +479,7 @@ export class SchedulerService {
       } as any);
 
       posts.push(post);
+      await this.rabbitmq.enqueueScheduledPost(post.id, slot.targetDate);
       this.logger.log(`[OrganicBatch] Post ${post.id} scheduled for slot ${slot.slotIndex + 1}: ${slot.formattedLocal}`);
     }
 
@@ -478,6 +497,61 @@ export class SchedulerService {
         timestampMs: s.timestampMs,
       })),
     };
+  }
+
+  /** Build a distinct business-aware plan for the Instant Posts panel. */
+  async scheduleInstantWeek(data: {
+    businessId: string;
+    count?: number;
+    platforms?: string;
+    timezone?: string;
+  }) {
+    const business = await this.firebase.getBusinessById(data.businessId);
+    const profile = await this.firebase.getBusinessProfile(data.businessId);
+    if (!business && !profile) throw new NotFoundException('Business profile not found');
+
+    const businessName = profile?.businessName || business?.name || 'Your business';
+    const category = profile?.businessCategory || profile?.industry || business?.niche || 'your industry';
+    const goal = profile?.businessGoals || 'grow your audience';
+    const usp = profile?.businessUSP || 'quality and personal service';
+    const count = Math.min(Math.max(Number(data.count) || 5, 1), 10);
+    const templates = [
+      [`Meet ${businessName}`, `Discover what makes ${businessName} different in ${category}. ${usp}. Follow along and see how we help you ${goal}.`],
+      ['A helpful tip for you', `One simple ${category} tip from ${businessName}: focus on the small improvements that make a big difference. Save this for later and share it with someone who needs it.`],
+      ['Behind the business', `A little behind-the-scenes from ${businessName}. We care about thoughtful work, reliable results, and the people we serve. What would you like us to show next?`],
+      ['Community spotlight', `We are grateful for the ${businessName} community. Tell us your biggest ${category} challenge and our team will share a practical idea to help.`],
+      ['Your next step', `Ready to ${goal}? ${businessName} is here to help with ${usp}. Send us a message or visit us to get started.`],
+      ['Frequently asked', `People ask us about ${category} all the time. Drop your question below and ${businessName} will answer it in the next post.`],
+      ['Weekly recap', `This week at ${businessName}: useful ideas, real conversations, and steady progress toward better ${category}. Thanks for being here.`],
+    ];
+
+    const posts: any[] = [];
+    const cursor = new Date();
+    const batchId = `instant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    for (let index = 0; posts.length < count && index < 21; index++) {
+      cursor.setDate(cursor.getDate() + (index === 0 ? 0 : 1));
+      if (cursor.getDay() === 0 || cursor.getDay() === 6) continue;
+      const [headline, caption] = templates[posts.length % templates.length];
+      const scheduledTime = new Date(cursor);
+      scheduledTime.setHours(10, 0, 0, 0);
+      posts.push(await this.firebase.createScheduledPost({
+        businessId: data.businessId,
+        headline,
+        caption,
+        hashtags: [`#${String(category).replace(/[^a-z0-9]/gi, '')}`, '#DIPARIAI'],
+        platform: data.platforms || 'both',
+        scheduledTime,
+        postType: 'Instant Business Post',
+        status: 'SCHEDULED',
+        publishResult: null,
+        timezone: data.timezone || 'Asia/Kolkata',
+        batchId,
+        batchType: 'INSTANT_WEEK',
+        publishLogs: [{ timestamp: new Date().toISOString(), action: 'INSTANT_PLAN_CREATED', details: `Business-aware post ${posts.length + 1}/${count}` }],
+      } as any));
+      await this.rabbitmq.enqueueScheduledPost(posts[posts.length - 1].id, scheduledTime);
+    }
+    return { success: true, batchId, count: posts.length, posts };
   }
 
   /**

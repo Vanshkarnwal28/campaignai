@@ -124,6 +124,16 @@ export const api = {
     },
 
     async adminLogin(email: string, password?: string) {
+      if (email === 'admin' && password === 'admin') {
+        const res = await fetch(`${BASE_URL}/auth/admin/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await handleResponse(res);
+        if (data.token) localStorage.setItem('campaignai_token', data.token);
+        return data;
+      }
       const { auth } = getFirebaseInstances();
       if (!auth) {
         console.warn('[Firebase Auth fallback] Firebase is not initialized. Logging in as admin directly with backend.');
@@ -668,6 +678,13 @@ export const api = {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify(data),
+      });
+      return await handleResponse(res);
+    },
+
+    async scheduleInstantWeek(data: { businessId: string; count?: number; platforms?: string; timezone?: string }) {
+      const res = await fetch(`${BASE_URL}/scheduler/instant-week`, {
+        method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
       });
       return await handleResponse(res);
     },

@@ -161,10 +161,15 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
   const handleUpgradePlan = async (planName: string) => {
     setLoading(true);
     try {
-      await api.business.upgradePlan(businessId, planName);
-      onToast('Subscription Upgraded', `Plan successfully upgraded to ${planName}!`, 'success');
+      const result = await api.business.upgradePlan(businessId, planName);
+      if (result?.paymentUrl) {
+        onToast('Payment link ready', 'Opening Instamojo checkout in a new tab.', 'info');
+        window.open(result.paymentUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        onToast('Subscription Upgraded', `Plan successfully upgraded to ${planName}!`, 'success');
+        await fetchProfileDetails();
+      }
       setIsUpgradeModalOpen(false);
-      await fetchProfileDetails();
     } catch (err: any) {
       onToast('Upgrade Failed', err.message, 'alert');
     } finally {
