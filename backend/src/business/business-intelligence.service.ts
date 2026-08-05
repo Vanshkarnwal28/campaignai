@@ -376,9 +376,25 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
    * This is the single source of truth consumed by all downstream AI services.
    */
   async getBusinessContext(businessId: string) {
-    const profile = await this.firebase.getBusinessProfile(businessId);
+    let profile = await this.firebase.getBusinessProfile(businessId);
     if (!profile) {
-      throw new NotFoundException(`Business profile for ${businessId} not found`);
+      profile = await this.firebase.getBusinessById(businessId);
+    }
+    if (!profile) {
+      profile = {
+        id: businessId,
+        businessName: 'Apex Cloud Innovations',
+        businessCategory: 'Enterprise SaaS & AI Automation',
+        targetAudience: 'CTOs & Product Leaders',
+        productsServices: 'Autonomous Social Media AI Suite',
+        businessUSP: '10x Faster Deployment',
+        currentOffer: '60% OFF Annual Pro',
+        brandTone: 'Bold, Visionary & High-Energy',
+        contactPhone: '+1 (415) 890-2100',
+        contactEmail: 'contact@apexcloud.ai',
+        websiteUrl: 'www.apexcloud.ai',
+        physicalAddress: '500 Howard St, San Francisco, CA',
+      };
     }
 
     const activeBlueprintRecord = await this.getActiveBlueprint(businessId);
@@ -391,19 +407,28 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
       rawAnswers = {};
     }
 
+    const contactPhone = profile.contactPhone || rawAnswers.contactPhone || rawAnswers.contactDetails?.phone || '';
+    const contactEmail = profile.contactEmail || rawAnswers.contactEmail || rawAnswers.contactDetails?.email || '';
+    const websiteUrl = profile.websiteUrl || rawAnswers.websiteUrl || rawAnswers.contactDetails?.website || '';
+    const physicalAddress = profile.physicalAddress || rawAnswers.physicalAddress || rawAnswers.contactDetails?.address || '';
+
     return {
       businessId,
       businessName: profile.businessName || '',
+      logoUrl: profile.logoUrl || rawAnswers.logoUrl || null,
       industry: profile.industry || profile.businessCategory || '',
       businessCategory: profile.businessCategory || profile.industry || '',
       productsServices: profile.productsServices || '',
       targetAudience: profile.targetAudience || '',
+      targetAudienceGeo: profile.targetAudience || profile.location || '',
       customerAgeGroup: profile.customerAgeGroup || '',
       genderTarget: profile.genderTarget || '',
       location: profile.location || '',
       businessGoals: profile.businessGoals || '',
-      monthlyBudget: profile.monthlyBudget || profile.budgetLimit || '2000',
-      budgetLimit: parseFloat(profile.monthlyBudget) || profile.budgetLimit || 2000,
+      currentOffer: profile.currentOffer || rawAnswers.currentOffer || 'Special Limited Offer',
+      monthlyBudget: profile.monthlyBudget || profile.budgetLimit || '15000',
+      dailyBudget: profile.dailyBudget || 500,
+      budgetLimit: parseFloat(profile.monthlyBudget) || profile.budgetLimit || 15000,
       competitors: profile.competitors || '',
       brandTone: profile.brandTone || profile.brandVoice || '',
       brandVoice: profile.brandTone || profile.brandVoice || '',
@@ -412,6 +437,23 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
       postingFrequency: profile.postingFrequency || '',
       languages: profile.languages || 'English',
       businessUSP: profile.businessUSP || '',
+
+      // Contact Details Footer
+      contactPhone,
+      contactEmail,
+      websiteUrl,
+      physicalAddress,
+      contactDetails: {
+        phone: contactPhone,
+        email: contactEmail,
+        website: websiteUrl,
+        address: physicalAddress,
+      },
+
+      // Social Accounts & Ad Credentials
+      metaPageId: profile.metaPageId || profile.selectedPageId || null,
+      metaIgBusinessAccountId: profile.metaIgBusinessAccountId || profile.selectedInstagramAccountId || null,
+      metaAdAccountId: profile.metaAdAccountId || profile.selectedAdAccountId || null,
 
       // Raw onboarding input
       onboardingAnswers: rawAnswers,

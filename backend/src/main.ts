@@ -15,9 +15,11 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // Enable CORS for frontend API communications
-  const allowedOrigins = process.env.FRONTEND_URL
-    ? [process.env.FRONTEND_URL, 'http://localhost:3000']
-    : ['http://localhost:3000', 'http://localhost:5173'];
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+  ];
 
   app.enableCors({
     origin: (origin, callback) => {

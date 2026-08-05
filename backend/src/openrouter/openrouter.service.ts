@@ -152,4 +152,48 @@ export class OpenRouterService {
       return null;
     }
   }
+
+  /**
+   * AI Image Generation using OpenRouter.
+   */
+  async generateImage(prompt: string): Promise<string> {
+    if (!this.apiKey) {
+      this.logger.warn('No OPENROUTER_API_KEY configured — returning fallback image URL');
+      const kw = encodeURIComponent(prompt.split(' ').slice(0, 3).join(','));
+      return `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80&kw=${kw}`;
+    }
+
+    try {
+      const response = await axios.post(
+        this.baseUrl,
+        {
+          model: 'black-forest-labs/flux-1-schnell',
+          messages: [
+            {
+              role: 'user',
+              content: `Generate an image for: ${prompt}`,
+            },
+          ],
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://campaignai.app',
+            'X-Title': 'DIPARI AI',
+          },
+          timeout: 15_000,
+        },
+      );
+
+      const content = response.data?.choices?.[0]?.message?.content || '';
+      const urlMatch = content.match(/https?:\/\/[^\s"']+\.(?:png|jpg|jpeg|webp)/i);
+      if (urlMatch) return urlMatch[0];
+    } catch (e: any) {
+      this.logger.warn(`OpenRouter image generation fallback used due to: ${e.message}`);
+    }
+
+    const kw = encodeURIComponent(prompt.split(' ').slice(0, 3).join(','));
+    return `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80&kw=${kw}`;
+  }
 }

@@ -3,9 +3,28 @@ import * as admin from 'firebase-admin';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { UsersDao } from './daos/users.dao';
+import { WorkspacesDao } from './daos/workspaces.dao';
+import { SocialPostsDao } from './daos/social-posts.dao';
 
 class MockDocument {
-  constructor(public id: string, public exists: boolean, private _data: any = null) {}
+  public ref: any;
+  constructor(public id: string, public exists: boolean, private _data: any = null) {
+    this.ref = {
+      update: async (data: any) => {
+        return { id: this.id };
+      },
+      get: async () => {
+        return this;
+      },
+      set: async (data: any, options?: any) => {
+        return { id: this.id };
+      },
+      delete: async () => {
+        return { id: this.id };
+      }
+    };
+  }
   data() {
     return this._data;
   }
@@ -113,6 +132,10 @@ class MockQuery {
         const data = d.data();
         const fieldVal = data ? data[w.field] : undefined;
         if (w.op === '==') return fieldVal === w.val;
+        if (w.op === '<=') return fieldVal <= w.val;
+        if (w.op === '>=') return fieldVal >= w.val;
+        if (w.op === '<') return fieldVal < w.val;
+        if (w.op === '>') return fieldVal > w.val;
         if (w.op === 'array-contains') {
           return Array.isArray(fieldVal) && fieldVal.includes(w.val);
         }
@@ -219,12 +242,16 @@ export class FirebaseService implements OnModuleInit {
   private db: any;
   private readonly logger = new Logger(FirebaseService.name);
 
+  public usersDao: UsersDao = new UsersDao((name: string) => this.col(name));
+  public workspacesDao: WorkspacesDao = new WorkspacesDao((name: string) => this.col(name));
+  public socialPostsDao: SocialPostsDao = new SocialPostsDao((name: string) => this.col(name));
+
   onModuleInit() {
+    this.getDb();
     const isMock = !process.env.FIREBASE_PROJECT_ID;
 
     if (isMock) {
       this.logger.log('FIREBASE_PROJECT_ID not set. Initializing local MockFirestore service.');
-      this.db = new MockDb();
       
       const mockAuthObj = {
         createUser: async (properties: any) => {
@@ -262,32 +289,66 @@ export class FirebaseService implements OnModuleInit {
 
       this.seedAdminUserIfNeeded();
     } else {
-      // Prevent re-initialising on hot-reload
-      if (admin.apps.length === 0) {
-        const fs = require('fs');
-        const path = require('path');
-        const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
-
-        if (fs.existsSync(serviceAccountPath)) {
-          this.logger.log(`Loading Firebase Admin credentials from local JSON file: ${serviceAccountPath}`);
-          const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-          admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-          });
-        } else {
-          this.logger.log('Firebase credentials JSON file not found locally. Falling back to environment variables.');
-          admin.initializeApp({
-            credential: admin.credential.cert({
-              projectId: process.env.FIREBASE_PROJECT_ID,
-              clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-              privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-            }),
-          });
-        }
-      }
-      this.db = admin.firestore();
       this.logger.log('Firebase Firestore initialised successfully');
     }
+  }
+
+  /**
+   * Upload a file buffer (e.g. generated 1080x1080 PNG graphic) to Firebase Storage,
+   * making it publicly accessible and returning the public download URL.
+   */
+  async uploadFileBuffer(
+    buffer: Buffer,
+    destinationPath: string,
+    contentType: string = 'image/png',
+  ): Promise<{ publicUrl: string; storagePath: string }> {
+    const storageBucket = process.env.FIREBASE_STORAGE_BUCKET || 'campaignai-1044d.firebasestorage.app';
+
+    if (process.env.FIREBASE_PROJECT_ID && admin.apps.length > 0) {
+      try {
+        const bucket = admin.storage().bucket(storageBucket);
+        const file = bucket.file(destinationPath);
+
+        await file.save(buffer, {
+          metadata: {
+            contentType,
+            metadata: {
+              firebaseStorageDownloadTokens: destinationPath.replace(/[^a-zA-Z0-9]/g, '-'),
+            },
+          },
+          resumable: false,
+        });
+
+        // Make file public
+        try {
+          await file.makePublic();
+        } catch {
+          // If bucket-level ACL restricts makePublic, use standard Firebase Storage download URL
+        }
+
+        const encodedPath = encodeURIComponent(destinationPath);
+        const publicUrl = `https://firebasestorage.googleapis.com/v0/b/${storageBucket}/o/${encodedPath}?alt=media`;
+
+        this.logger.log(`[FirebaseService] File successfully uploaded to Firebase Storage: ${publicUrl}`);
+        return { publicUrl, storagePath: destinationPath };
+      } catch (err: any) {
+        this.logger.warn(`[FirebaseService] Firebase Storage upload failed (${err.message}). Using mock storage fallback.`);
+      }
+    }
+
+    // Mock/Offline fallback: Save file to local public upload directory & serve via local URL
+    const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    const fileName = path.basename(destinationPath);
+    const localFilePath = path.join(uploadsDir, fileName);
+    fs.writeFileSync(localFilePath, buffer);
+
+    const publicUrl = `http://localhost:3001/uploads/${fileName}`;
+    this.logger.log(`[FirebaseService] File saved locally to mock storage: ${publicUrl}`);
+    return { publicUrl, storagePath: destinationPath };
   }
 
   private async seedAdminUserIfNeeded() {
@@ -325,11 +386,43 @@ export class FirebaseService implements OnModuleInit {
 
   // ─── Internal helpers ────────────────────────────────────────────────────────
 
-  col(name: string) {
-    if (!process.env.FIREBASE_PROJECT_ID) {
-      return new MockCollection(name, this.db) as any;
+  private getDb() {
+    if (!this.db) {
+      if (!process.env.FIREBASE_PROJECT_ID) {
+        this.db = new MockDb();
+      } else {
+        if (admin.apps.length === 0) {
+          const fs = require('fs');
+          const path = require('path');
+          const serviceAccountPath = path.join(process.cwd(), 'firebase-service-account.json');
+
+          if (fs.existsSync(serviceAccountPath)) {
+            const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+            admin.initializeApp({
+              credential: admin.credential.cert(serviceAccount),
+            });
+          } else {
+            admin.initializeApp({
+              credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+              }),
+            });
+          }
+        }
+        this.db = admin.firestore();
+      }
     }
-    return this.db.collection(name);
+    return this.db;
+  }
+
+  col(name: string) {
+    const db = this.getDb();
+    if (!process.env.FIREBASE_PROJECT_ID) {
+      return new MockCollection(name, db) as any;
+    }
+    return db.collection(name);
   }
 
   private async snap<T>(doc: admin.firestore.DocumentSnapshot): Promise<T | null> {
@@ -427,10 +520,12 @@ export class FirebaseService implements OnModuleInit {
   }
 
   async updateBusiness(id: string, data: Record<string, any>) {
+    if (!id) return null;
     const updateData = { ...data, updatedAt: new Date() };
-    await this.col('businesses').doc(id).update(updateData);
-    const updated = await this.col('businesses').doc(id).get();
-    return { id, ...updated.data() };
+    const docRef = this.col('businesses').doc(id);
+    await docRef.set(updateData, { merge: true });
+    const updated = await docRef.get();
+    return { id, ...(updated?.data() || {}) };
   }
 
   async getAllBusinesses() {
@@ -863,9 +958,9 @@ export class FirebaseService implements OnModuleInit {
     const now = new Date();
     if (!snap.empty) {
       const doc = snap.docs[0];
-      await doc.ref.update({ ...data, businessId, updatedAt: now });
-      const updated = await doc.ref.get();
-      return { id: doc.id, ...updated.data() };
+      await this.col('metaAccounts').doc(doc.id).set({ ...data, businessId, updatedAt: now }, { merge: true });
+      const updated = await this.col('metaAccounts').doc(doc.id).get();
+      return { id: doc.id, ...(updated?.data ? updated.data() : updated) };
     }
     const id = this.generateId();
     const metaAccount = { ...data, businessId, createdAt: now, updatedAt: now };
@@ -1124,6 +1219,13 @@ export class FirebaseService implements OnModuleInit {
 
   async updateScheduledPost(id: string, data: Record<string, any>) {
     await this.col('scheduledPosts').doc(id).update({ ...data, updatedAt: new Date() });
+    if (this.socialPostsDao) {
+      try {
+        await this.socialPostsDao.update(id, data as any);
+      } catch (e) {
+        // ignore if not present in social_posts
+      }
+    }
     const updated = await this.col('scheduledPosts').doc(id).get();
     return { id, ...updated.data() };
   }

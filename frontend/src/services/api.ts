@@ -1171,6 +1171,15 @@ export const api = {
     },
   },
 
+  payment: {
+    async getStatus(paymentRequestId: string) {
+      const res = await fetch(`${BASE_URL}/payment/status/${encodeURIComponent(paymentRequestId)}`, {
+        headers: getHeaders(),
+      });
+      return await handleResponse(res);
+    },
+  },
+
   // Top-level shortcuts
   getBusinessContext: (businessId: string) => api.business.getBusinessContext(businessId),
   getBusinessBlueprint: (businessId: string) => api.business.getBusinessBlueprint(businessId),

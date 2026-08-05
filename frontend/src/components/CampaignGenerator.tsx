@@ -31,6 +31,26 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
   // Step 2: Strategy Review
   const [generatedStrategy, setGeneratedStrategy] = useState<any>(null);
   const [isPostingModalOpen, setIsPostingModalOpen] = useState(false);
+  const [paymentPlan, setPaymentPlan] = useState<string | null>(null);
+
+  const handlePlanPurchase = async (plan: 'PRO' | 'ENTERPRISE', planName: string) => {
+    setPaymentPlan(plan);
+    try {
+      const result = await api.business.upgradePlan(businessId, plan);
+      if (!result?.paymentUrl) {
+        throw new Error('The payment link could not be created. Please try again.');
+      }
+
+      addToast('Opening secure checkout', `${planName} payment is ready.`, 'info');
+      setIsPostingModalOpen(false);
+      // A top-level navigation is reliable after an async API call and avoids popup blockers.
+      window.location.assign(result.paymentUrl);
+    } catch (err: any) {
+      addToast('Payment setup failed', err.message || 'Could not start checkout.', 'alert');
+    } finally {
+      setPaymentPlan(null);
+    }
+  };
 
   const handleStep1Submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -459,10 +479,11 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
                   </div>
                 </div>
                 <button 
-                  onClick={() => { addToast('Advance Option Selected', 'Advance plan selected. Connecting to payment portal...', 'info'); setIsPostingModalOpen(false); }}
-                  style={{ width: '100%', padding: '10px', background: '#6366f1', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                  onClick={() => handlePlanPurchase('PRO', 'Advance')}
+                  disabled={paymentPlan !== null}
+                  style={{ width: '100%', padding: '10px', background: '#6366f1', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: paymentPlan ? 'wait' : 'pointer', opacity: paymentPlan && paymentPlan !== 'PRO' ? 0.6 : 1 }}
                 >
-                  Choose Advance (₹5,900)
+                  {paymentPlan === 'PRO' ? 'Preparing checkout…' : 'Choose Advance (₹5,900)'}
                 </button>
               </div>
 
@@ -495,10 +516,11 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
                   </div>
                 </div>
                 <button 
-                  onClick={() => { addToast('Premium Option Selected', 'Premium plan selected. Connecting to payment portal...', 'info'); setIsPostingModalOpen(false); }}
-                  style={{ width: '100%', padding: '10px', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer' }}
+                  onClick={() => handlePlanPurchase('ENTERPRISE', 'Premium')}
+                  disabled={paymentPlan !== null}
+                  style={{ width: '100%', padding: '10px', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: paymentPlan ? 'wait' : 'pointer', opacity: paymentPlan && paymentPlan !== 'ENTERPRISE' ? 0.6 : 1 }}
                 >
-                  Choose Premium (₹11,800)
+                  {paymentPlan === 'ENTERPRISE' ? 'Preparing checkout…' : 'Choose Premium (₹11,800)'}
                 </button>
               </div>
 

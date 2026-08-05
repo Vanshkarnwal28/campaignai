@@ -80,6 +80,16 @@ export class MetaController {
     }
   }
 
+  @Get('channels')
+  async getChannels(@Query('businessId') businessId: string) {
+    if (!businessId) throw new HttpException('Missing businessId', HttpStatus.BAD_REQUEST);
+    try {
+      return await this.integrationsService.getMetaChannels(businessId);
+    } catch (error: any) {
+      throw new HttpException(error?.message || 'Failed to fetch channels', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   @Get('pages')
   async getPages(@Query('businessId') businessId: string) {
     if (!businessId) throw new HttpException('Missing businessId', HttpStatus.BAD_REQUEST);
@@ -253,5 +263,37 @@ export class MetaController {
       return 'EVENT_RECEIVED';
     }
     throw new HttpException('Not Found', HttpStatus.NOT_FOUND);
+  }
+
+  @Post('launch-campaign')
+  async launchCampaign(@Body() body: { businessId: string; [key: string]: any }) {
+    if (!body.businessId) {
+      throw new HttpException('Missing businessId in request payload', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      return await this.integrationsService.launchMetaAdCampaign(body.businessId, body);
+    } catch (error: any) {
+      throw new HttpException(error?.message || 'Failed to launch Meta campaign', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+}
+
+/**
+ * Controller mapping for /api/meta
+ */
+@Controller('api/meta')
+export class ApiMetaController {
+  constructor(private readonly integrationsService: IntegrationsService) {}
+
+  @Post('launch-campaign')
+  async launchCampaign(@Body() body: { businessId: string; [key: string]: any }) {
+    if (!body.businessId) {
+      throw new HttpException('Missing businessId in request payload', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      return await this.integrationsService.launchMetaAdCampaign(body.businessId, body);
+    } catch (error: any) {
+      throw new HttpException(error?.message || 'Failed to launch Meta campaign', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
   }
 }

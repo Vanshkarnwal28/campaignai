@@ -20,13 +20,13 @@ export const PLAN_PRICING_MAP: Record<string, PlanPricing> = {
   },
   PRO: {
     name: 'PRO',
-    amount: 3999.00,
+    amount: 5900.00,
     currency: 'INR',
     description: 'CampaignAI Pro Plan - 1 Month',
   },
   ENTERPRISE: {
     name: 'ENTERPRISE',
-    amount: 9999.00,
+    amount: 11800.00,
     currency: 'INR',
     description: 'CampaignAI Enterprise Plan - 1 Month',
   },

@@ -263,7 +263,7 @@ async function runRuntimeTests() {
 
 // Start backend server and run tests
 const { NestFactory } = require('@nestjs/core');
-const { AppModule } = require('./dist/app.module');
+const { AppModule } = require('./dist/src/app.module');
 const { ValidationPipe } = require('@nestjs/common');
 
 async function main() {

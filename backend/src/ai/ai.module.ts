@@ -1,18 +1,19 @@
 import { Global, Module } from '@nestjs/common';
 import { AiService } from './ai.service';
+import { AiAdCampaignService } from './ai-ad-campaign.service';
+import { AiAdCampaignController, ApiAiAdCampaignController } from './ai-ad-campaign.controller';
+import { GraphicGeneratorService } from '../content/graphic-generator.service';
+
+import { BusinessModule } from '../business/business.module';
 
 /**
- * AiModule — Global module that provides AIService to every module.
- *
- * Marked @Global() so that no feature module needs to explicitly import it.
- * AIService is the single gateway for all OpenRouter communication.
- *
- * Prompt flow:
- *   BusinessIntelligenceService → PromptBuilderService → AIService → OpenRouter
+ * AiModule — Global module that provides AIService and AiAdCampaignService.
  */
 @Global()
 @Module({
-  providers: [AiService],
-  exports: [AiService],
+  imports: [BusinessModule],
+  controllers: [AiAdCampaignController, ApiAiAdCampaignController],
+  providers: [AiService, AiAdCampaignService, GraphicGeneratorService],
+  exports: [AiService, AiAdCampaignService, GraphicGeneratorService],
 })
 export class AiModule {}

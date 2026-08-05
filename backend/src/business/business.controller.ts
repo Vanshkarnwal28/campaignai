@@ -16,6 +16,13 @@ export class BusinessController {
     return this.businessService.getQuestionsList(lang);
   }
 
+  /** Direct 10-Question Onboarding submission endpoint (/api/business/onboarding) */
+  @Post('onboarding')
+  async submitOnboardingDirect(@Body() body: any) {
+    const businessId = body.businessId || body.workspaceId || body.id || 'default_business';
+    return this.businessService.saveStructuredOnboarding(businessId, body);
+  }
+
   /** Start or resume an onboarding conversation */
   @Post(':id/onboarding/start')
   async startOnboarding(@Param('id') id: string) {
@@ -31,7 +38,13 @@ export class BusinessController {
     return this.businessService.chatOnboarding(id, body.message);
   }
 
-  /** Legacy: Submit all answers at once (backward compatible) */
+  /** Submit all 10 onboarding answers for a specific business ID */
+  @Post(':id/onboarding')
+  async submitOnboardingForId(@Param('id') id: string, @Body() body: any) {
+    return this.businessService.saveStructuredOnboarding(id, body);
+  }
+
+  /** Submit answers at once (backward compatible) */
   @Post(':id/onboarding/submit')
   async submitAnswers(@Param('id') id: string, @Body() body: { answers: { q: string; a: string }[] }) {
     return this.businessService.saveAnswersAndGenerateStrategy(id, body.answers);

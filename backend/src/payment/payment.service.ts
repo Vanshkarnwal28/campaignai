@@ -50,7 +50,12 @@ export class PaymentService {
     }
 
     // 2. Derive plan pricing server-side ONLY (never trust client)
-    const pricing = getPlanPricing(params.plan);
+    let pricing;
+    try {
+      pricing = getPlanPricing(params.plan);
+    } catch (error: any) {
+      throw new BadRequestException(error.message || 'Invalid subscription plan');
+    }
     if (pricing.amount <= 0) {
       throw new BadRequestException('Free tier does not require payment gateway processing');
     }

@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { IntegrationsService } from './integrations.service';
-import { MetaController } from './meta.controller';
+import { MetaController, ApiMetaController } from './meta.controller';
 
 @Module({
-  controllers: [MetaController],
+  controllers: [MetaController, ApiMetaController],
   providers: [IntegrationsService],
   exports: [IntegrationsService],
 })

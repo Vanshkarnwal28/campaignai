@@ -93,6 +93,34 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
     fetchProfileDetails();
   }, [businessId]);
 
+  // Instamojo appends these values to the configured redirect URL. Verify the
+  // payment with our backend instead of trusting the browser query string.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paymentRequestId = params.get('payment_request_id');
+    if (!paymentRequestId) return;
+
+    const verifyReturnedPayment = async () => {
+      try {
+        const result = await api.payment.getStatus(paymentRequestId);
+        if (result.status === 'PAID') {
+          onToast('Payment successful', `${result.plan} is now active.`, 'success');
+          await fetchProfileDetails();
+        } else if (result.status === 'FAILED') {
+          onToast('Payment not completed', 'Your subscription was not changed.', 'alert');
+        } else {
+          onToast('Payment is processing', 'We will update your subscription once Instamojo confirms it.', 'info');
+        }
+      } catch (err: any) {
+        onToast('Payment verification pending', err.message || 'We could not verify this payment yet.', 'info');
+      } finally {
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    };
+
+    void verifyReturnedPayment();
+  }, [businessId]);
+
   const handleInputChange = (field: string, value: any) => {
     setProfileForm(prev => ({ ...prev, [field]: value }));
     setHasChanges(true);

@@ -274,7 +274,12 @@ export const SmartInputControls: React.FC<SmartInputControlsProps> = ({
               <button
                 key={t}
                 type="button"
-                onClick={() => onSelectOption(t)}
+                onClick={() => {
+                  const match = (value || '').match(/Brand Color:\s*[^,]+/i);
+                  const existingColor = match ? match[0] : null;
+                  const newValue = existingColor ? `${t}, ${existingColor}` : t;
+                  onSelectOption(newValue);
+                }}
                 style={{
                   padding: '6px 12px',
                   borderRadius: 20,
@@ -298,7 +303,16 @@ export const SmartInputControls: React.FC<SmartInputControlsProps> = ({
               <button
                 key={cp.name}
                 type="button"
-                onClick={() => onSelectOption(`${value ? value + ', ' : ''}Brand Color: ${cp.name} (${cp.hex})`)}
+                onClick={() => {
+                  const newColorStr = `Brand Color: ${cp.name} (${cp.hex})`;
+                  let newValue = value || '';
+                  if (/Brand Color:\s*[^,]+/i.test(newValue)) {
+                    newValue = newValue.replace(/Brand Color:\s*[^,]+/i, newColorStr);
+                  } else {
+                    newValue = newValue ? `${newValue}, ${newColorStr}` : newColorStr;
+                  }
+                  onSelectOption(newValue);
+                }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',

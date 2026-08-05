@@ -322,6 +322,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
       'business_management',
       'pages_show_list',
       'pages_read_engagement',
+      'leads_retrieval',
       'instagram_basic',
       'instagram_content_publish',
     ].join(',');
@@ -402,6 +403,7 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
           'business_management',
           'pages_show_list',
           'pages_read_engagement',
+          'leads_retrieval',
           'instagram_basic',
           'instagram_content_publish',
         ];

@@ -626,8 +626,12 @@ export class BusinessService {
       blueprintApproved: false,
     });
 
-    // Update business document
+    // Update business document in Workspaces collection
     await this.firebase.updateBusiness(businessId, {
+      name: data.businessName || undefined,
+      niche: data.businessCategory || data.industry || 'General Business',
+      vibe: data.brandTone || data.brandVoice || 'Professional',
+      currentOffer: data.currentOffer || data.businessUSP || '',
       onboardingCompleted: true,
       blueprintApproved: false,
       updatedAt: new Date(),
@@ -868,5 +872,86 @@ export class BusinessService {
     });
 
     return { success: true, subscription: activeSub };
+  }
+
+  /**
+   * Save 10-Question Onboarding Survey Guardrail context directly to active Workspace profile in Firestore.
+   */
+  async saveStructuredOnboarding(businessId: string, data: any) {
+    this.logger.log(`Saving 10-Question Onboarding Survey for business: ${businessId}`);
+
+    const answers = data.answers || data;
+
+    const contactDetails = typeof answers.contactDetails === 'object' ? answers.contactDetails : {
+      phone: answers.phone || answers.contactPhone || '',
+      email: answers.email || answers.contactEmail || '',
+      website: answers.website || answers.websiteUrl || '',
+      address: answers.address || answers.physicalAddress || '',
+    };
+
+    const socialAccounts = typeof answers.socialAccounts === 'object' ? answers.socialAccounts : {
+      facebookPageId: answers.facebookPageId || answers.metaPageId || '',
+      instagramAccountId: answers.instagramAccountId || answers.metaIgBusinessAccountId || '',
+    };
+
+    const adBudgetGoal = typeof answers.adBudgetGoal === 'object' ? answers.adBudgetGoal : {
+      dailyBudget: Number(answers.dailyBudget || answers.budget || 500),
+      monthlyBudget: Number(answers.monthlyBudget || (answers.dailyBudget ? answers.dailyBudget * 30 : 15000)),
+      conversionGoal: answers.conversionGoal || answers.campaignGoal || 'OUTCOME_SALES',
+    };
+
+    const updatedProfileData: any = {
+      businessName: answers.businessName || answers.name || 'Business Workspace',
+      logoUrl: answers.logoUrl || answers.businessLogo || null,
+      businessCategory: answers.category || answers.businessCategory || answers.niche || 'General Business',
+      industry: answers.category || answers.businessCategory || answers.niche || 'General Business',
+      targetAudience: answers.targetAudienceGeo || answers.targetAudience || 'General Audience',
+      location: answers.targetAudienceGeo || answers.location || 'Global',
+      productsServices: answers.productsServices || answers.products || '',
+      businessUSP: answers.businessUSP || answers.usp || 'Quality Service & Excellence',
+      currentOffer: answers.currentOffer || answers.offer || 'Special Limited Offer',
+      brandTone: answers.brandTone || answers.vibe || 'Professional & Engaging',
+      vibe: answers.brandTone || answers.vibe || 'Professional & Engaging',
+      contactPhone: contactDetails.phone,
+      contactEmail: contactDetails.email,
+      websiteUrl: contactDetails.website,
+      physicalAddress: contactDetails.address,
+      contactDetails,
+      metaPageId: socialAccounts.facebookPageId || null,
+      metaIgBusinessAccountId: socialAccounts.instagramAccountId || null,
+      metaAdAccountId: answers.metaAdAccountId || answers.adAccountId || null,
+      monthlyBudget: String(adBudgetGoal.monthlyBudget || 15000),
+      dailyBudget: adBudgetGoal.dailyBudget || 500,
+      businessGoals: adBudgetGoal.conversionGoal || 'Sales Conversions',
+      onboardingCompleted: true,
+      onboardingAnswers: JSON.stringify(answers),
+      updatedAt: new Date(),
+    };
+
+    // Save to Firebase Business Profiles & Business Workspaces
+    await this.firebase.col('businessProfiles').doc(businessId).set(updatedProfileData, { merge: true });
+    await this.firebase.col('businesses').doc(businessId).set({ id: businessId, name: updatedProfileData.businessName, ...updatedProfileData }, { merge: true });
+    if (this.firebase.workspacesDao) {
+      try {
+        await this.firebase.workspacesDao.update(businessId, updatedProfileData);
+      } catch {
+        // Ignored if workspace record missing
+      }
+    }
+
+    // Automatically generate AI Business Blueprint to populate AI context
+    let blueprint = null;
+    try {
+      blueprint = await this.businessIntelligence.generateBusinessBlueprint(businessId);
+    } catch (err: any) {
+      this.logger.warn(`Blueprint auto-generation fallback: ${err.message}`);
+    }
+
+    return {
+      success: true,
+      businessId,
+      profile: updatedProfileData,
+      blueprint,
+    };
   }
 }

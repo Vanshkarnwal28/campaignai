@@ -20,6 +20,37 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 export class ContentController {
   constructor(private readonly contentService: ContentService) {}
 
+  /** POST /content/generate-graphic — Generate 1080x1080 branded graphic and upload PNG buffer to Firebase Storage */
+  @Post('generate-graphic')
+  @HttpCode(HttpStatus.OK)
+  async generateGraphic(
+    @Body() body: { businessId: string; offerText?: string },
+  ) {
+    if (!body?.businessId) {
+      throw new BadRequestException('businessId is required');
+    }
+    return this.contentService.generateBrandedGraphic(
+      body.businessId,
+      body.offerText,
+    );
+  }
+
+  /** POST /content/generate-instagram — Generate Instagram caption & 15 hashtags using Gemini API and Firestore context */
+  @Post('generate-instagram')
+  @HttpCode(HttpStatus.OK)
+  async generateInstagram(
+    @Body() body: { businessId: string; topic?: string; currentOffer?: string },
+  ) {
+    if (!body?.businessId) {
+      throw new BadRequestException('businessId is required');
+    }
+    return this.contentService.generateInstagramPost(
+      body.businessId,
+      body.topic,
+      body.currentOffer,
+    );
+  }
+
   // ─── Monthly Content Strategy Endpoints ─────────────────────────────────────
 
   /** POST /content/strategy/generate — Generate monthly strategy using Business Context */
