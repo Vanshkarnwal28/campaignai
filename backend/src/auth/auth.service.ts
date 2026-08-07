@@ -58,6 +58,12 @@ export class AuthService {
         status: 'ACTIVE',
         currentPeriodEnd: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
       });
+      await this.firebase.createAuditLog({
+        userId,
+        businessId: business.id,
+        action: 'USER_REGISTERED',
+        details: JSON.stringify({ email }),
+      });
 
       // Return local token fallback or custom token
       const token = await this.generateToken(userId, email, 'MEMBER');
@@ -130,6 +136,13 @@ export class AuthService {
       // Get user businesses
       const businesses = await this.firebase.getBusinessesByUserId(userId);
       const businessId = businesses[0]?.id || null;
+
+      await this.firebase.createAuditLog({
+        userId,
+        businessId,
+        action: 'USER_LOGGED_IN',
+        details: JSON.stringify({ email, role }),
+      });
 
       return {
         user: { id: userId, email, name, role, businessId },

@@ -14,6 +14,7 @@ import {
   Moon,
   Send,
   Cpu,
+  Bot,
   FileText,
   AlertTriangle,
   CheckCircle,
@@ -61,7 +62,17 @@ interface ToastMsg {
 export default function App() {
   // Theme & Navigation State
   const [isLight, setIsLight] = useState(true);
-  const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'admin-login' | 'onboarding' | 'blueprint' | 'dashboard' | 'builder' | 'generator' | 'manager' | 'analytics' | 'support' | 'admin' | 'connect-meta' | 'calendar' | 'scheduler' | 'instant-posts' | 'settings' | 'profile'>('landing');
+  const [currentPage, setCurrentPage] = useState<'landing' | 'auth' | 'admin-login' | 'onboarding' | 'blueprint' | 'dashboard' | 'builder' | 'generator' | 'manager' | 'analytics' | 'support' | 'admin' | 'connect-meta' | 'calendar' | 'scheduler' | 'instant-posts' | 'settings' | 'profile'>(() => {
+    const saved = localStorage.getItem('dipari_active_page');
+    return (saved && !['landing', 'auth', 'onboarding', 'blueprint', 'admin-login'].includes(saved)) ? (saved as any) : 'landing';
+  });
+
+  useEffect(() => {
+    if (currentPage && !['landing', 'auth', 'onboarding', 'blueprint', 'admin-login'].includes(currentPage)) {
+      localStorage.setItem('dipari_active_page', currentPage);
+    }
+  }, [currentPage]);
+
   // Auth state
   const [user, setUser] = useState<any>(null);
   const [globalError, setGlobalError] = useState<string | null>(null);
@@ -266,7 +277,8 @@ export default function App() {
                 if (window.location.pathname === '/connect-meta') {
                   setCurrentPage('connect-meta');
                 } else {
-                  setCurrentPage('dashboard');
+                  const savedPage = localStorage.getItem('dipari_active_page');
+                  setCurrentPage((savedPage && !['landing', 'auth', 'onboarding'].includes(savedPage)) ? (savedPage as any) : 'dashboard');
                 }
               }
               addToast('Welcome Back', `Successfully logged in as ${res.name}`, 'success');
@@ -314,7 +326,8 @@ export default function App() {
                 if (window.location.pathname === '/connect-meta') {
                   setCurrentPage('connect-meta');
                 } else {
-                  setCurrentPage('dashboard');
+                  const savedPage = localStorage.getItem('dipari_active_page');
+                  setCurrentPage((savedPage && !['landing', 'auth', 'onboarding'].includes(savedPage)) ? (savedPage as any) : 'dashboard');
                 }
               }
             }
@@ -956,9 +969,40 @@ export default function App() {
               ))}
 
               {isStrategyGenerating && (
-                <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
-                  <Cpu size={16} className="animate-spin" />
-                  Generating strategy profiles and SWOT maps...
+                <div style={{
+                  display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 28px',
+                  background: 'linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.08))',
+                  border: '1px solid rgba(99,102,241,0.25)', borderRadius: 16, maxWidth: '80%',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 700, fontSize: '0.95rem', color: '#6366f1' }}>
+                    <Sparkles size={18} style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    AI Strategy Engine Working...
+                  </div>
+                  {['Analyzing your business profile', 'Building competitive SWOT maps', 'Crafting brand positioning strategy', 'Generating content blueprints'].map((step, idx) => (
+                    <div key={idx} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.82rem',
+                      color: '#475569', animation: `fadeIn 0.5s ease ${idx * 0.6}s both`,
+                    }}>
+                      <div style={{
+                        width: 8, height: 8, borderRadius: '50%',
+                        background: '#6366f1',
+                        animation: `pulse 1.2s ease-in-out ${idx * 0.3}s infinite`,
+                      }} />
+                      {step}...
+                    </div>
+                  ))}
+                  <div style={{
+                    height: 4, borderRadius: 4, background: 'rgba(99,102,241,0.15)',
+                    overflow: 'hidden', marginTop: 4,
+                  }}>
+                    <div style={{
+                      height: '100%', borderRadius: 4,
+                      background: 'linear-gradient(90deg, #6366f1, #a855f7, #6366f1)',
+                      backgroundSize: '200% 100%',
+                      animation: 'shimmer 1.5s ease-in-out infinite',
+                      width: '70%',
+                    }} />
+                  </div>
                 </div>
               )}
             </div>
@@ -976,8 +1020,14 @@ export default function App() {
                 <div>
                   <form onSubmit={handleChatbotSend} style={{ display: 'flex', gap: 12 }}>
                     <input
-                      className="form-input"
-                      placeholder="Provide your response..."
+                      style={{
+                        flex: 1, padding: '14px 18px', borderRadius: 12,
+                        border: '1.5px solid #cbd5e1', background: '#ffffff', color: '#1e293b',
+                        fontSize: '0.92rem', outline: 'none', transition: 'border-color 0.2s',
+                      }}
+                      onFocus={e => e.currentTarget.style.borderColor = '#6366f1'}
+                      onBlur={e => e.currentTarget.style.borderColor = '#cbd5e1'}
+                      placeholder="Type your response here..."
                       value={chatbotInput}
                       onChange={e => {
                         setChatbotInput(e.target.value);
@@ -1836,44 +1886,134 @@ export default function App() {
 
             {/* Sliding drawer panel */}
             {isAssistantOpen && (
-              <div className="glass-panel" style={{
-                position: 'absolute', bottom: 70, left: 0, width: 360, height: 480,
-                display: 'flex', flexDirection: 'column', background: 'rgba(15, 23, 42, 0.95)',
-                border: '1px solid var(--color-border)', borderRadius: 20, overflow: 'hidden'
+              <div style={{
+                position: 'absolute', bottom: 74, left: 0, width: 390, height: 530,
+                display: 'flex', flexDirection: 'column',
+                background: 'rgba(15, 23, 42, 0.96)', backdropFilter: 'blur(16px)',
+                border: '1px solid rgba(255, 255, 255, 0.12)', borderRadius: 24, overflow: 'hidden',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 30px rgba(99, 102, 241, 0.25)'
               }}>
+                {/* Header */}
                 <div style={{
-                  padding: 20, borderBottom: '1px solid var(--color-border)', background: 'rgba(255,255,255,0.02)',
-                  display: 'flex', alignItems: 'center', gap: 10
+                  padding: '16px 20px', background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.2)'
                 }}>
-                  <Cpu size={18} style={{ color: 'var(--color-primary)' }} />
-                  <div>
-                    <h4 style={{ fontSize: '0.9rem' }}>DIPARI AI Help Bot</h4>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--color-success)' }}>Official Support Assistant</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: '50%',
+                      background: 'rgba(255, 255, 255, 0.2)', backdropFilter: 'blur(8px)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff',
+                      border: '1.5px solid rgba(255, 255, 255, 0.4)'
+                    }}>
+                      <Bot size={22} />
+                    </div>
+                    <div>
+                      <h4 style={{ fontSize: '0.98rem', fontWeight: 800, color: '#ffffff', margin: 0, letterSpacing: '-0.01em' }}>DIPARI Support Assistant</h4>
+                      <div style={{ fontSize: '0.72rem', color: '#e0e7ff', display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, fontWeight: 600 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#4ade80', boxShadow: '0 0 8px #4ade80' }}></span>
+                        Always Active • Instant AI Help
+                      </div>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => setIsAssistantOpen(false)}
+                    style={{ background: 'transparent', border: 'none', color: '#ffffff', opacity: 0.8, cursor: 'pointer', padding: 4 }}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Quick Suggestion Pills */}
+                <div style={{ padding: '10px 14px 4px', display: 'flex', gap: 6, overflowX: 'auto', background: '#0f172a', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                  {[
+                    { label: '🚀 Meta Connect', msg: 'How do I connect my Facebook & Instagram account?' },
+                    { label: '📅 Post Calendar', msg: 'How do scheduled posts work in the calendar?' },
+                    { label: '💳 Payment Help', msg: 'How do I upgrade or view my payment invoice?' }
+                  ].map((chip, cIdx) => (
+                    <button
+                      key={cIdx}
+                      type="button"
+                      onClick={() => setAssistantInput(chip.msg)}
+                      style={{
+                        padding: '5px 10px', fontSize: '0.7rem', fontWeight: 600, color: '#a5b4fc',
+                        background: 'rgba(99, 102, 241, 0.12)', border: '1px solid rgba(99, 102, 241, 0.3)',
+                        borderRadius: 20, whiteSpace: 'nowrap', cursor: 'pointer'
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
                 </div>
 
                 {/* Messages list */}
-                <div style={{ flex: 1, padding: 20, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ flex: 1, padding: 16, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14, background: '#0f172a' }}>
                   {chatMessages.map((m, idx) => (
                     <div key={idx} style={{
                       display: 'flex',
                       justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start'
                     }}>
                       <div style={{
-                        maxWidth: '85%', padding: '10px 14px', borderRadius: 12, fontSize: '0.85rem',
-                        background: m.role === 'user' ? 'var(--color-primary)' : 'rgba(255, 255, 255, 0.05)',
-                        color: '#fff', border: m.role === 'user' ? 'none' : '1px solid var(--color-border)'
+                        maxWidth: '85%', padding: '11px 15px', borderRadius: m.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                        fontSize: '0.85rem', lineHeight: '1.5',
+                        background: m.role === 'user' ? 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)' : '#1e293b',
+                        color: '#ffffff', border: m.role === 'user' ? 'none' : '1px solid rgba(255, 255, 255, 0.08)',
+                        boxShadow: m.role === 'user' ? '0 4px 12px rgba(99, 102, 241, 0.3)' : '0 4px 12px rgba(0,0,0,0.3)'
                       }}>
-                        {m.content}
+                        {m.role === 'user' ? m.content : (() => {
+                          const raw = (m.content || '').replace(/\*\*/g, '');
+                          const lines = raw.split('\n');
+                          return lines.map((line: string, lIdx: number) => {
+                            const clean = line.replace(/^#{1,6}\s*/, '').trim();
+                            if (!clean && lIdx < lines.length - 1) return <div key={lIdx} style={{ height: 6 }} />;
+                            return (
+                              <div key={lIdx} style={{ marginBottom: 4, lineHeight: '1.5', color: '#f1f5f9' }}>
+                                {clean}
+                              </div>
+                            );
+                          });
+                        })()}
                       </div>
                     </div>
                   ))}
                 </div>
 
                 {/* Input area */}
-                <form onSubmit={sendAssistantMessage} style={{ padding: 16, borderTop: '1px solid var(--color-border)', display: 'flex', gap: 10 }}>
-                  <input className="form-input" placeholder="Ask a question about DIPARI AI..." value={assistantInput} onChange={e => setAssistantInput(e.target.value)} style={{ padding: 10, fontSize: '0.8rem' }} />
-                  <button className="btn-primary" type="submit" style={{ padding: 10 }}><Send size={14} /></button>
+                <form onSubmit={sendAssistantMessage} style={{ padding: '12px 14px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', background: '#0f172a', display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input
+                    placeholder="Ask DIPARI AI Assistant..."
+                    value={assistantInput}
+                    onChange={e => setAssistantInput(e.target.value)}
+                    style={{
+                      flex: 1,
+                      padding: '11px 16px',
+                      fontSize: '0.85rem',
+                      background: '#1e293b',
+                      color: '#ffffff',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      borderRadius: 9999,
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    type="submit"
+                    style={{
+                      width: 42,
+                      height: 42,
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+                      color: '#ffffff',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)'
+                    }}
+                  >
+                    <Send size={18} />
+                  </button>
                 </form>
               </div>
             )}

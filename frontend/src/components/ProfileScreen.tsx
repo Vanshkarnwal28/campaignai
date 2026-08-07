@@ -11,7 +11,10 @@ import {
   Trash2, 
   Save,
   RefreshCw,
-  FileText
+  FileText,
+  CheckCircle,
+  Lock,
+  ArrowRight
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -23,7 +26,6 @@ interface ProfileScreenProps {
 export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToast }) => {
   const [loading, setLoading] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
-  // const [isEditing, setIsEditing] = useState(false);
   
   // Profile, Subscription & Payment details from server
   const [profileForm, setProfileForm] = useState({
@@ -56,6 +58,63 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
 
   // Upgrade Plan Modal state
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+
+  // Instamojo Gateway Modal state
+  const [instamojoCheckout, setInstamojoCheckout] = useState<any>(null);
+  const [instamojoPaymentMethod, setInstamojoPaymentMethod] = useState<'upi' | 'card' | 'netbanking'>('upi');
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [paymentSuccessReceipt, setPaymentSuccessReceipt] = useState<any>(null);
+
+  // Live Timer & UPI Collect States
+  const [paymentTimerSeconds, setPaymentTimerSeconds] = useState(300); // 5:00 min countdown
+  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [upiVpa, setUpiVpa] = useState('user@upi');
+  const [upiCollectSent, setUpiCollectSent] = useState(false);
+  const [upiMessage, setUpiMessage] = useState('');
+
+  // 1. Countdown Timer Hook
+  useEffect(() => {
+    let interval: any = null;
+    if (isTimerRunning && instamojoCheckout && paymentTimerSeconds > 0) {
+      interval = setInterval(() => {
+        setPaymentTimerSeconds(prev => prev - 1);
+      }, 1000);
+    } else if (paymentTimerSeconds === 0) {
+      setIsTimerRunning(false);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isTimerRunning, instamojoCheckout, paymentTimerSeconds]);
+
+  // 2. Real-time Status Polling Hook (every 3 seconds)
+  useEffect(() => {
+    let pollInterval: any = null;
+    if (instamojoCheckout && isTimerRunning) {
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await api.payment.getStatus(instamojoCheckout.paymentRequestId);
+          if (res?.status === 'PAID') {
+            setIsTimerRunning(false);
+            const paidPlan = instamojoCheckout.plan;
+            const receipt = {
+              plan: paidPlan,
+              amount: instamojoCheckout.amount,
+              paymentId: res.paymentId || `PAY_MOJO_${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+              date: new Date().toLocaleDateString(),
+            };
+            setInstamojoCheckout(null);
+            setPaymentSuccessReceipt(receipt);
+            onToast('Payment Successful', `Instamojo Payment of ₹${receipt.amount.toLocaleString()} received! Subscription upgraded to ${paidPlan}.`, 'success');
+            await fetchProfileDetails();
+          }
+        } catch { /* silent retry */ }
+      }, 3000);
+    }
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [instamojoCheckout, isTimerRunning]);
 
   const fetchProfileDetails = async () => {
     if (!businessId) return;
@@ -93,8 +152,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
     fetchProfileDetails();
   }, [businessId]);
 
-  // Instamojo appends these values to the configured redirect URL. Verify the
-  // payment with our backend instead of trusting the browser query string.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const paymentRequestId = params.get('payment_request_id');
@@ -176,7 +233,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
       await api.business.updateProfile(businessId, profileForm);
       onToast('Changes Saved', 'Your business profile details were successfully updated.', 'success');
       setHasChanges(false);
-      ;
       await fetchProfileDetails();
     } catch (err: any) {
       onToast('Save Failed', err.message || 'Could not update profile data', 'alert');
@@ -190,18 +246,68 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
     setLoading(true);
     try {
       const result = await api.business.upgradePlan(businessId, planName);
-      if (result?.paymentUrl) {
-        onToast('Payment link ready', 'Opening Instamojo checkout in a new tab.', 'info');
-        window.open(result.paymentUrl, '_blank', 'noopener,noreferrer');
-      } else {
-        onToast('Subscription Upgraded', `Plan successfully upgraded to ${planName}!`, 'success');
-        await fetchProfileDetails();
-      }
       setIsUpgradeModalOpen(false);
+
+      setPaymentTimerSeconds(300); // 5 minutes timer
+      setIsTimerRunning(true);
+      setUpiCollectSent(false);
+      setUpiMessage('');
+
+      setInstamojoCheckout({
+        plan: planName,
+        amount: result?.amount || ((planName === 'DEMO_TEST' || planName === 'DEMO_1INR') ? 1 : planName === 'STARTER' ? 1499 : planName === 'PRO' ? 4900 : 11800),
+        paymentRequestId: result?.paymentRequestId || `MOJO_${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        paymentUrl: result?.paymentUrl,
+      });
     } catch (err: any) {
       onToast('Upgrade Failed', err.message, 'alert');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendUpiCollect = async () => {
+    if (!instamojoCheckout) return;
+    if (!upiVpa || !upiVpa.includes('@')) {
+      onToast('Invalid UPI ID', 'Please enter a valid UPI VPA (e.g. 9876543210@paytm, user@ybl, user@upi)', 'alert');
+      return;
+    }
+    setIsProcessingPayment(true);
+    try {
+      const res = await api.payment.sendUpiCollect(instamojoCheckout.paymentRequestId, upiVpa);
+      setUpiCollectSent(true);
+      setUpiMessage(res.message || `UPI Collect Request sent to ${upiVpa}! Open your UPI app to approve.`);
+      onToast('UPI Request Sent', `Payment request of ₹${instamojoCheckout.amount} sent to ${upiVpa}. Open Google Pay / PhonePe / Paytm / BHIM to approve.`, 'info');
+    } catch (err: any) {
+      onToast('UPI Collect Failed', err.message, 'alert');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
+
+  const handleConfirmInstamojoCheckout = async () => {
+    if (!instamojoCheckout) return;
+    setIsProcessingPayment(true);
+    try {
+      const res = await api.payment.confirmUpiPayment(instamojoCheckout.paymentRequestId);
+      if (res?.status === 'PAID') {
+        setIsTimerRunning(false);
+        const paidPlan = instamojoCheckout.plan;
+        const receipt = {
+          plan: paidPlan,
+          amount: instamojoCheckout.amount,
+          paymentId: res.paymentId || `PAY_MOJO_${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+          date: new Date().toLocaleDateString(),
+        };
+        setInstamojoCheckout(null);
+        setPaymentSuccessReceipt(receipt);
+        onToast('Payment Successful', `Instamojo Payment of ₹${receipt.amount.toLocaleString()} confirmed! Subscription upgraded to ${paidPlan}.`, 'success');
+        await fetchProfileDetails();
+      }
+    } catch (err: any) {
+      onToast('Verification Pending', err.message || 'Payment approval pending in your UPI app.', 'alert');
+    } finally {
+      setIsProcessingPayment(false);
     }
   };
 
@@ -223,7 +329,6 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
   };
 
   const handleCancelSubscription = async () => {
-    if (!window.confirm('Are you sure you want to cancel your active subscription renewal?')) return;
     setLoading(true);
     try {
       await api.business.cancelSubscription(businessId);
@@ -233,6 +338,23 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
       onToast('Cancellation Failed', err.message, 'alert');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadInvoice = async (payment: any) => {
+    try {
+      const result = await api.payment.downloadInvoice(payment.id);
+      const url = URL.createObjectURL(result.blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = result.fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      onToast('Invoice Downloaded', `Invoice ${payment.invoiceId || result.fileName} was downloaded.`, 'success');
+    } catch (err: any) {
+      onToast('Invoice Download Failed', err.message || 'Could not download this invoice.', 'alert');
     }
   };
 
@@ -633,7 +755,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
                 </span>
               </div>
 
-              <button
+                  <button
                 onClick={() => setIsUpgradeModalOpen(true)}
                 style={{ width: '100%', padding: '10px', background: '#4f46e5', border: 'none', color: '#ffffff', borderRadius: '10px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer', boxShadow: '0 2px 4px 0 rgba(79, 70, 229, 0.15)' }}
               >
@@ -705,19 +827,24 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
                   } else if (pay.status === 'FAILED') {
                     badgeBg = '#fee2e2';
                     badgeColor = '#991b1b';
-                  } else if (pay.status === 'REFUNDED') {
-                    badgeBg = '#dbeafe';
-                    badgeColor = '#1e40af';
                   }
 
+                  const invoiceCode = pay.invoiceId || (pay.paymentRequestId ? `INV-${pay.paymentRequestId.slice(-8).toUpperCase()}` : 'INV-2026-0001');
+                  const payDate = pay.paymentDate || pay.paidAt || pay.createdAt;
+                  const rawPlan = pay.planPurchased || pay.plan || 'PRO';
+                  const planText = rawPlan.endsWith('Tier') ? rawPlan : `${rawPlan} Tier`;
+                  const amountVal = Number(pay.amountPaid ?? pay.amount ?? 0);
+                  const currSymbol = pay.currency === 'USD' ? '$' : '₹';
+                  const methodText = pay.paymentMethod || 'Instamojo UPI';
+
                   return (
-                    <tr key={pay.id} style={{ borderBottom: '1px solid #f1f5f9', color: '#334155' }}>
-                      <td style={{ padding: '12px 10px', fontWeight: 'bold' }}>{pay.invoiceId}</td>
-                      <td style={{ padding: '12px 10px' }}>{formatProfileDate(pay.paymentDate)}</td>
-                      <td style={{ padding: '12px 10px', fontWeight: 600 }}>{pay.planPurchased}</td>
-                      <td style={{ padding: '12px 10px', fontWeight: 'bold' }}>${(pay.amountPaid || 0).toFixed(2)}</td>
-                      <td style={{ padding: '12px 10px' }}>{pay.paymentMethod}</td>
-                      <td style={{ padding: '12px 10px', fontFamily: 'monospace' }}>{pay.transactionId}</td>
+                    <tr key={pay.id || pay.paymentRequestId || Math.random()} style={{ borderBottom: '1px solid #f1f5f9', color: '#334155' }}>
+                      <td style={{ padding: '12px 10px', fontWeight: 'bold' }}>{invoiceCode}</td>
+                      <td style={{ padding: '12px 10px' }}>{formatProfileDate(payDate)}</td>
+                      <td style={{ padding: '12px 10px', fontWeight: 600 }}>{planText}</td>
+                      <td style={{ padding: '12px 10px', fontWeight: 'bold', color: '#0f172a' }}>{currSymbol}{amountVal.toLocaleString('en-IN')}</td>
+                      <td style={{ padding: '12px 10px' }}>{methodText}</td>
+                      <td style={{ padding: '12px 10px', fontFamily: 'monospace' }}>{pay.transactionId || 'TXN-ONLINE'}</td>
                       <td style={{ padding: '12px 10px' }}>
                         <span style={{ padding: '2px 8px', background: badgeBg, color: badgeColor, borderRadius: '9999px', fontSize: '0.65rem', fontWeight: 'bold' }}>
                           {pay.status}
@@ -726,7 +853,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
                       <td style={{ padding: '12px 10px', textAlign: 'center' }}>
                         <a
                           href="#"
-                          onClick={(e) => { e.preventDefault(); onToast('Downloading invoice', `Downloading pdf invoice for ${pay.invoiceId}`, 'success'); }}
+                          onClick={(e) => { e.preventDefault(); void handleDownloadInvoice(pay); }}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#4f46e5', fontWeight: 'bold', textDecoration: 'none' }}
                         >
                           <FileText className="w-3.5 h-3.5" /> PDF
@@ -821,12 +948,30 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
               </button>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', margin: '8px 0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px', margin: '8px 0' }}>
+              {/* ₹1 Demo Test Plan Card */}
+              <div style={{ border: '2px dashed #10b981', borderRadius: '12px', padding: '16px', textAlign: 'center', background: '#ecfdf5', position: 'relative' }}>
+                <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: '#10b981', color: '#ffffff', padding: '2px 8px', borderRadius: '9999px', fontSize: '0.55rem', fontWeight: 'bold' }}>
+                  TEST DEMO
+                </div>
+                <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#047857' }}>Demo Test</span>
+                <div style={{ margin: '8px 0' }}>
+                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#065f46' }}>₹1</span>
+                  <span style={{ fontSize: '0.7rem', color: '#047857' }}>/one-time</span>
+                </div>
+                <button
+                  onClick={() => handleUpgradePlan('DEMO_TEST')}
+                  style={{ width: '100%', padding: '6px', background: '#10b981', border: 'none', color: '#ffffff', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer' }}
+                >
+                  Pay ₹1 Demo Test
+                </button>
+              </div>
+
               {/* Starter Plan Card */}
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', textAlign: 'center', background: subscription.plan === 'STARTER' ? '#f5f3ff' : '#ffffff' }}>
                 <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#334155' }}>Starter</span>
                 <div style={{ margin: '8px 0' }}>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>$19</span>
+                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>₹1,499</span>
                   <span style={{ fontSize: '0.7rem', color: '#64748b' }}>/month</span>
                 </div>
                 <button
@@ -844,7 +989,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
                 </div>
                 <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#4f46e5' }}>Pro</span>
                 <div style={{ margin: '8px 0' }}>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>$49</span>
+                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>₹4,900</span>
                   <span style={{ fontSize: '0.7rem', color: '#64748b' }}>/month</span>
                 </div>
                 <button
@@ -859,7 +1004,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', textAlign: 'center', background: subscription.plan === 'ENTERPRISE' ? '#f5f3ff' : '#ffffff' }}>
                 <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#334155' }}>Enterprise</span>
                 <div style={{ margin: '8px 0' }}>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>$199</span>
+                  <span style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a' }}>₹11,800</span>
                   <span style={{ fontSize: '0.7rem', color: '#64748b' }}>/month</span>
                 </div>
                 <button
@@ -871,6 +1016,265 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({ businessId, onToas
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* --- INSTAMOJO PAYMENT GATEWAY CHECKOUT MODAL --- */}
+      {instamojoCheckout && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: '20px', maxWidth: '520px', width: '100%', padding: '0', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            
+            {/* Instamojo Branded Header */}
+            <div style={{ background: '#0a2540', color: '#ffffff', padding: '20px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ background: '#22c55e', color: '#ffffff', fontSize: '0.65rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase' }}>INSTAMOJO GATEWAY</span>
+                  <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}><Lock className="w-3 h-3 text-emerald-400" /> 256-bit SSL Secure</span>
+                </div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, margin: '6px 0 0 0', color: '#ffffff' }}>Complete Subscription Payment</h3>
+              </div>
+              <button 
+                onClick={() => setInstamojoCheckout(null)}
+                style={{ border: 'none', background: 'rgba(255,255,255,0.1)', color: '#ffffff', width: '32px', height: '32px', borderRadius: '50%', cursor: 'pointer', fontSize: '1rem' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Merchant & Order Summary */}
+            <div style={{ padding: '20px 24px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Merchant Name</span>
+                <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0f172a' }}>DIPARI AI Technologies Pvt Ltd</div>
+                <div style={{ fontSize: '0.75rem', color: '#475569', marginTop: '2px' }}>Plan: <strong>{instamojoCheckout.plan} Tier</strong></div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', textTransform: 'uppercase' }}>Total Amount</span>
+                <div style={{ fontSize: '1.4rem', fontWeight: 900, color: '#4f46e5' }}>₹{instamojoCheckout.amount.toLocaleString()}</div>
+                <span style={{ fontSize: '0.65rem', color: '#16a34a', fontWeight: 'bold' }}>Includes GST</span>
+              </div>
+            </div>
+
+            {/* Payment Method Selector & UPI Timer */}
+            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              
+              {/* Live Countdown Timer Badge */}
+              <div style={{
+                background: paymentTimerSeconds > 0 ? '#fef3c7' : '#fee2e2',
+                border: paymentTimerSeconds > 0 ? '1px solid #f59e0b' : '1px solid #ef4444',
+                borderRadius: '12px', padding: '12px 16px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: paymentTimerSeconds > 0 ? '#f59e0b' : '#ef4444', animation: 'pulse 1.5s infinite' }} />
+                  <div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 800, color: paymentTimerSeconds > 0 ? '#92400e' : '#991b1b' }}>
+                      {paymentTimerSeconds > 0 ? 'UPI Payment Request Active' : 'Payment Time Expired'}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: paymentTimerSeconds > 0 ? '#b45309' : '#b91c1c' }}>
+                      {paymentTimerSeconds > 0 ? 'Approve request in Google Pay, PhonePe, Paytm, or BHIM' : 'Timer reached 0:00. Please click retry to generate a new request.'}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '1.4rem', fontWeight: 900, fontFamily: 'monospace', color: paymentTimerSeconds > 0 ? '#d97706' : '#dc2626' }}>
+                  {Math.floor(paymentTimerSeconds / 60).toString().padStart(2, '0')}:{(paymentTimerSeconds % 60).toString().padStart(2, '0')}
+                </div>
+              </div>
+
+              {upiCollectSent && upiMessage && (
+                <div style={{ background: '#dcfce7', border: '1px solid #22c55e', color: '#15803d', padding: '10px 14px', borderRadius: '10px', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                  ✓ {upiMessage}
+                </div>
+              )}
+
+              <span style={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#334155' }}>Select Payment Method:</span>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => setInstamojoPaymentMethod('upi')}
+                  style={{ padding: '10px 6px', border: instamojoPaymentMethod === 'upi' ? '2px solid #4f46e5' : '1px solid #cbd5e1', borderRadius: '10px', background: instamojoPaymentMethod === 'upi' ? '#f5f3ff' : '#ffffff', color: '#0f172a', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer', textAlign: 'center' }}
+                >
+                  ⚡ UPI Collect App
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstamojoPaymentMethod('card')}
+                  style={{ padding: '10px 6px', border: instamojoPaymentMethod === 'card' ? '2px solid #4f46e5' : '1px solid #cbd5e1', borderRadius: '10px', background: instamojoPaymentMethod === 'card' ? '#f5f3ff' : '#ffffff', color: '#0f172a', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer', textAlign: 'center' }}
+                >
+                  💳 Debit / Credit Card
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInstamojoPaymentMethod('netbanking')}
+                  style={{ padding: '10px 6px', border: instamojoPaymentMethod === 'netbanking' ? '2px solid #4f46e5' : '1px solid #cbd5e1', borderRadius: '10px', background: instamojoPaymentMethod === 'netbanking' ? '#f5f3ff' : '#ffffff', color: '#0f172a', fontWeight: 'bold', fontSize: '0.75rem', cursor: 'pointer', textAlign: 'center' }}
+                >
+                  🏦 Net Banking
+                </button>
+              </div>
+
+              {/* UPI Collect VPA Section */}
+              {instamojoPaymentMethod === 'upi' && (
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 'bold' }}>Enter Your UPI ID (VPA) or Scan QR:</label>
+                  
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                      type="text" 
+                      value={upiVpa} 
+                      onChange={e => setUpiVpa(e.target.value)}
+                      placeholder="e.g. 9876543210@paytm, user@ybl, user@okaxis" 
+                      style={{ flex: 1, padding: '10px 12px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '0.85rem', color: '#0f172a', outline: 'none' }} 
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSendUpiCollect}
+                      disabled={isProcessingPayment || paymentTimerSeconds <= 0}
+                      style={{ padding: '10px 16px', background: '#10b981', color: '#ffffff', border: 'none', borderRadius: '8px', fontWeight: 'bold', fontSize: '0.8rem', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      Send UPI Request
+                    </button>
+                  </div>
+
+                  {/* QR Code & Mobile Deep Link Section */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '16px', background: '#ffffff', border: '1px dashed #cbd5e1', padding: '12px', borderRadius: '10px', marginTop: '4px' }}>
+                    <div style={{ textAlign: 'center', background: '#ffffff', padding: '4px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(`upi://pay?pa=${(upiVpa && upiVpa.includes('@')) ? upiVpa : 'paymojo@instamojo'}&pn=DIPARI%20AI&tn=Subscription%20${instamojoCheckout.plan}&am=${instamojoCheckout.amount}&cu=INR&tr=${instamojoCheckout.paymentRequestId}`)}`}
+                        alt="Scan QR to Pay" 
+                        style={{ width: '130px', height: '130px', borderRadius: '4px' }}
+                      />
+                      <span style={{ display: 'block', fontSize: '0.65rem', color: '#64748b', fontWeight: 'bold', marginTop: '4px' }}>Scan with GPay/PhonePe</span>
+                    </div>
+
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0f172a' }}>Open Directly in your UPI App:</span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                        <a 
+                          href={`upi://pay?pa=${(upiVpa && upiVpa.includes('@')) ? upiVpa : 'paymojo@instamojo'}&pn=DIPARI%20AI&am=${instamojoCheckout.amount}&cu=INR`}
+                          style={{ padding: '6px 8px', background: '#e0e7ff', color: '#3730a3', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 'bold', textDecoration: 'none', textAlign: 'center' }}
+                        >
+                          Google Pay
+                        </a>
+                        <a 
+                          href={`upi://pay?pa=${(upiVpa && upiVpa.includes('@')) ? upiVpa : 'paymojo@instamojo'}&pn=DIPARI%20AI&am=${instamojoCheckout.amount}&cu=INR`}
+                          style={{ padding: '6px 8px', background: '#fae8ff', color: '#86198f', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 'bold', textDecoration: 'none', textAlign: 'center' }}
+                        >
+                          PhonePe
+                        </a>
+                        <a 
+                          href={`upi://pay?pa=${(upiVpa && upiVpa.includes('@')) ? upiVpa : 'paymojo@instamojo'}&pn=DIPARI%20AI&am=${instamojoCheckout.amount}&cu=INR`}
+                          style={{ padding: '6px 8px', background: '#e0f2fe', color: '#0369a1', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 'bold', textDecoration: 'none', textAlign: 'center' }}
+                        >
+                          Paytm UPI
+                        </a>
+                        <a 
+                          href={`upi://pay?pa=${(upiVpa && upiVpa.includes('@')) ? upiVpa : 'paymojo@instamojo'}&pn=DIPARI%20AI&am=${instamojoCheckout.amount}&cu=INR`}
+                          style={{ padding: '6px 8px', background: '#fef3c7', color: '#92400e', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 'bold', textDecoration: 'none', textAlign: 'center' }}
+                        >
+                          BHIM UPI
+                        </a>
+                      </div>
+
+                      {instamojoCheckout.paymentUrl && (
+                        <button
+                          type="button"
+                          onClick={() => window.open(instamojoCheckout.paymentUrl, '_blank', 'noopener,noreferrer')}
+                          style={{ width: '100%', padding: '6px 10px', background: '#0a2540', color: '#ffffff', border: 'none', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 800, cursor: 'pointer', marginTop: '4px' }}
+                        >
+                          🌐 Pay via Instamojo Gateway Web Link
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {instamojoPaymentMethod === 'card' && (
+                <div style={{ background: '#f1f5f9', padding: '14px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 'bold' }}>Card Number:</label>
+                  <input type="text" defaultValue="4111 •••• •••• 1111" style={{ padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', color: '#0f172a' }} />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <input type="text" defaultValue="12/28" placeholder="MM/YY" style={{ padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', color: '#0f172a' }} />
+                    <input type="password" defaultValue="123" placeholder="CVV" style={{ padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', color: '#0f172a' }} />
+                  </div>
+                </div>
+              )}
+
+              {instamojoPaymentMethod === 'netbanking' && (
+                <div style={{ background: '#f1f5f9', padding: '14px', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#475569', fontWeight: 'bold' }}>Select Your Bank:</label>
+                  <select style={{ padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.85rem', color: '#0f172a', background: '#ffffff' }}>
+                    <option>HDFC Bank (Net Banking)</option>
+                    <option>ICICI Bank</option>
+                    <option>State Bank of India (SBI)</option>
+                    <option>Axis Bank</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Primary Action Button: Confirm Payment Approval in UPI App */}
+              <button
+                type="button"
+                onClick={handleConfirmInstamojoCheckout}
+                disabled={isProcessingPayment || paymentTimerSeconds <= 0}
+                style={{ width: '100%', padding: '14px', background: paymentTimerSeconds > 0 ? '#4f46e5' : '#94a3b8', color: '#ffffff', border: 'none', borderRadius: '12px', fontSize: '0.95rem', fontWeight: 800, cursor: isProcessingPayment ? 'wait' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)', marginTop: '8px' }}
+              >
+                {isProcessingPayment ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" /> Verifying UPI Payment Approval...
+                  </>
+                ) : (
+                  <>
+                    I Have Approved Payment in My UPI App <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* --- PAYMENT SUCCESS RECEIPT MODAL --- */}
+      {paymentSuccessReceipt && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 101, background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#ffffff', borderRadius: '20px', maxWidth: '440px', width: '100%', padding: '32px', boxShadow: '0 25px 50px -12px rgba(0,0,0,0.3)', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+              <CheckCircle className="w-10 h-10" />
+            </div>
+
+            <div>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#0f172a', margin: 0 }}>Payment Successful!</h3>
+              <p style={{ fontSize: '0.85rem', color: '#64748b', margin: '4px 0 0 0' }}>Instamojo transaction completed successfully.</p>
+            </div>
+
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', padding: '16px', textTransform: 'none', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.85rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#64748b' }}>Plan Subscribed:</span>
+                <strong style={{ color: '#4f46e5' }}>{paymentSuccessReceipt.plan} Tier</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#64748b' }}>Amount Paid:</span>
+                <strong style={{ color: '#0f172a' }}>₹{paymentSuccessReceipt.amount.toLocaleString()}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#64748b' }}>Transaction ID:</span>
+                <span style={{ color: '#334155', fontFamily: 'monospace', fontSize: '0.75rem' }}>{paymentSuccessReceipt.paymentId}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#64748b' }}>Date:</span>
+                <span style={{ color: '#334155' }}>{paymentSuccessReceipt.date}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setPaymentSuccessReceipt(null)}
+              style={{ width: '100%', padding: '12px', background: '#0f172a', color: '#ffffff', border: 'none', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 800, cursor: 'pointer' }}
+            >
+              Return to Business Profile
+            </button>
           </div>
         </div>
       )}

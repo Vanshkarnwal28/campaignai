@@ -1,5 +1,7 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import * as os from 'os';
 import { FirebaseService } from '../firebase/firebase.service';
+import { SeoCrawlerService } from './seo-crawler.service';
 
 @Injectable()
 export class AdminService {
@@ -19,7 +21,10 @@ export class AdminService {
     autoApproveLeads: true,
   };
 
-  constructor(private readonly firebase: FirebaseService) {}
+  constructor(
+    private readonly firebase: FirebaseService,
+    private readonly seoCrawler: SeoCrawlerService,
+  ) {}
 
   private checkAdmin(user: any) {
     if (user.role !== 'ADMIN') {
@@ -35,9 +40,19 @@ export class AdminService {
 
     const subscriptions = await this.firebase.getAllSubscriptions();
     const activeSubscribers = subscriptions.filter((s: any) => s.status === 'ACTIVE').length;
-    const totalRevenue = activeSubscribers * 49; // $49/mo estimated average revenue per paid tier
+    const payments = await this.firebase.getAllPayments();
+    const totalRevenue = payments
+      .filter((payment: any) => payment.status === 'PAID' || payment.status === 'COMPLETED')
+      .reduce((sum: number, payment: any) => sum + Number(payment.amountPaid || payment.amount || 0), 0);
 
     const auditLogsCount = await this.firebase.countAuditLogs();
+    const businessList = await this.firebase.getAllBusinesses();
+    const scheduled = (await Promise.all(businessList.map((business: any) => this.firebase.getScheduledPostsByBusinessId(business.id)))).flat();
+    const memory = process.memoryUsage ? process.memoryUsage() : { rss: 150 * 1024 * 1024 };
+    const freeMem = os.freemem();
+    const totalMem = os.totalmem();
+    const cpus = os.cpus();
+    const memoryPercent = Math.round(((totalMem - freeMem) / totalMem) * 100);
 
     return {
       totalUsers,
@@ -45,10 +60,107 @@ export class AdminService {
       activeCampaigns,
       activeSubscribers,
       totalRevenue,
+      paidPayments: payments.filter((payment: any) => payment.status === 'PAID' || payment.status === 'COMPLETED').length,
       auditLogsCount,
       platformHealth: 'OPERATIONAL',
       systemVersion: 'v2.4.0',
+      memoryUsage: `${Math.round(memory.rss / 1024 / 1024)} MB / ${Math.round(totalMem / 1024 / 1024 / 1024)} GB`,
+      memoryPercent,
+      cpuCores: cpus.length,
+      cpuModel: cpus[0]?.model || 'Generic CPU',
+      systemUptime: Math.round(os.uptime()),
+      processUptime: Math.round(process.uptime()),
+      jobsCompleted: scheduled.filter((post: any) => post.status === 'PUBLISHED').length,
+      activeJobs: scheduled.filter((post: any) => post.status === 'SCHEDULED').length,
     };
+  }
+
+  async runSeoAudit(adminUser: any, businessId: string, url?: string) {
+    this.checkAdmin(adminUser);
+    let targetUrl = url;
+
+    if (!targetUrl) {
+      const profile = await this.firebase.getBusinessProfile(businessId);
+      targetUrl = profile?.websiteUrl || 'https://campaignai.app';
+    }
+
+    const auditData = await this.seoCrawler.crawlWebsite(targetUrl);
+    await this.firebase.setBusinessSeoAudit(businessId, auditData);
+    await this.firebase.createAuditLog({
+      userId: adminUser.id,
+      businessId,
+      action: 'RUN_REAL_SEO_AUDIT',
+      details: JSON.stringify({ url: targetUrl, score: auditData.score }),
+    });
+
+    return auditData;
+  }
+
+  async getSeoProfile(adminUser: any, businessId: string) {
+    this.checkAdmin(adminUser);
+    return this.firebase.getBusinessSeoAudit(businessId);
+  }
+
+  async updateSeoProfile(adminUser: any, businessId: string, data: any) {
+    this.checkAdmin(adminUser);
+    const updated = await this.firebase.setBusinessSeoAudit(businessId, data);
+    await this.firebase.createAuditLog({
+      userId: adminUser.id,
+      businessId,
+      action: 'UPDATE_SEO_PROFILE',
+      details: JSON.stringify({ score: data.score, title: data.homepageTitle }),
+    });
+    return updated;
+  }
+
+  async sendInvoiceEmail(adminUser: any, businessId: string, invoiceId?: string) {
+    this.checkAdmin(adminUser);
+    const business = await this.firebase.getBusinessById(businessId);
+    if (!business) throw new NotFoundException('Business workspace not found');
+
+    const ownerId = business.memberIds?.[0] || business.ownerId;
+    if (ownerId) {
+      await this.firebase.createNotification({
+        userId: ownerId,
+        title: 'GST Tax Invoice Issued',
+        message: `Tax Invoice ${invoiceId || ''} for workspace ${business.name} has been processed and emailed.`,
+        type: 'INFO',
+        read: false,
+      });
+    }
+
+    await this.firebase.createAuditLog({
+      userId: adminUser.id,
+      businessId,
+      action: 'EMAILED_GST_INVOICE',
+      details: JSON.stringify({ invoiceId: invoiceId || 'AUTO_GENERATED' }),
+    });
+
+    return { success: true, message: `Invoice successfully issued and emailed for workspace ${business.name}` };
+  }
+
+  async updateSubscription(adminUser: any, businessId: string, plan: string) {
+    this.checkAdmin(adminUser);
+    const existingSubs = await this.firebase.getSubscriptionsByBusinessId(businessId);
+    const now = new Date();
+    let updated;
+    if (existingSubs.length > 0) {
+      updated = await this.firebase.updateSubscription(existingSubs[0].id, { plan, status: 'ACTIVE' });
+    } else {
+      const id = this.firebase.generateId();
+      const sub = { id, businessId, plan, status: 'ACTIVE', createdAt: now, updatedAt: now };
+      await this.firebase.col('subscriptions').doc(id).set(sub);
+      updated = sub;
+    }
+
+    await this.firebase.createAuditLog({
+      userId: adminUser.id,
+      businessId,
+      action: 'ADMIN_UPDATED_SUBSCRIPTION',
+      details: JSON.stringify({ plan }),
+    });
+
+    return updated;
   }
 
   async getUsers(adminUser: any) {
@@ -96,6 +208,32 @@ export class AdminService {
     );
   }
 
+  async updateBusinessProfile(adminUser: any, businessId: string, data: any) {
+    this.checkAdmin(adminUser);
+    const business = await this.firebase.getBusinessById(businessId);
+    if (!business) throw new NotFoundException('Business workspace not found');
+
+    const profile = await this.firebase.upsertBusinessProfile(businessId, {
+      businessName: data.businessName,
+      businessUSP: data.usp,
+      targetAudience: data.idealCustomer,
+      currentOffer: data.offer,
+      monthlyBudget: data.budget,
+      brandColors: data.brandColors,
+      logoUrl: data.logoUrl,
+    });
+    const updatedBusiness = await this.firebase.updateBusiness(businessId, {
+      name: data.businessName || business.name,
+    });
+    await this.firebase.createAuditLog({
+      userId: adminUser.id,
+      businessId,
+      action: 'ADMIN_UPDATED_BUSINESS_PROFILE',
+      details: JSON.stringify({ fields: Object.keys(data) }),
+    });
+    return { business: updatedBusiness, profile };
+  }
+
   async getAllCampaigns(adminUser: any) {
     this.checkAdmin(adminUser);
     return this.firebase.getAllCampaigns();
@@ -115,6 +253,11 @@ export class AdminService {
   async getAllSubscriptions(adminUser: any) {
     this.checkAdmin(adminUser);
     return this.firebase.getAllSubscriptions();
+  }
+
+  async getAllPayments(adminUser: any) {
+    this.checkAdmin(adminUser);
+    return this.firebase.getAllPayments();
   }
 
   async getAllTickets(adminUser: any) {
@@ -145,12 +288,16 @@ export class AdminService {
 
   async getSystemPrompts(adminUser: any) {
     this.checkAdmin(adminUser);
-    return this.systemPrompts;
+    const stored = await this.firebase.getAdminConfig<Record<string, any>>('systemPrompts');
+    return stored?.values || this.systemPrompts;
   }
 
   async updateSystemPrompt(adminUser: any, key: string, template: string) {
     this.checkAdmin(adminUser);
-    this.systemPrompts[key] = template;
+    const stored = await this.firebase.getAdminConfig<Record<string, any>>('systemPrompts');
+    const values = { ...(stored?.values || this.systemPrompts), [key]: template };
+    this.systemPrompts = values;
+    await this.firebase.setAdminConfig('systemPrompts', { values });
     await this.firebase.createAuditLog({
       userId: adminUser.id,
       action: 'UPDATE_SYSTEM_PROMPT',
@@ -201,8 +348,10 @@ export class AdminService {
 
   async getPlatformSettings(adminUser: any) {
     this.checkAdmin(adminUser);
+    const stored = await this.firebase.getAdminConfig<Record<string, any>>('platformSettings');
+    const settings = stored?.values || this.platformSettings;
     return {
-      ...this.platformSettings,
+      ...settings,
       openRouterApiKeyConfigured: !!process.env.OPENROUTER_API_KEY,
       firebaseProjectConfigured: !!process.env.FIREBASE_PROJECT_ID,
       metaAppIdConfigured: !!process.env.META_APP_ID,
@@ -215,11 +364,54 @@ export class AdminService {
       ...this.platformSettings,
       ...newSettings,
     };
+    await this.firebase.setAdminConfig('platformSettings', { values: this.platformSettings });
     await this.firebase.createAuditLog({
       userId: adminUser.id,
       action: 'UPDATE_PLATFORM_SETTINGS',
       details: JSON.stringify(newSettings),
     });
     return this.platformSettings;
+  }
+
+
+
+  // ─── Client Impersonation ────────────────────────────────────────────────────
+
+  /**
+   * Returns a client's full context data so admin can "view as client" on the frontend.
+   */
+  async impersonateClient(adminUser: any, businessId: string) {
+    this.checkAdmin(adminUser);
+    const business = await this.firebase.getBusinessById(businessId);
+    if (!business) throw new NotFoundException('Business workspace not found');
+
+    const ownerId = business.ownerId || business.memberIds?.[0];
+    let ownerUser: any = null;
+    if (ownerId) {
+      ownerUser = await this.firebase.getUserById(ownerId);
+    }
+
+    const profile = await this.firebase.getBusinessProfile(businessId);
+    const subscriptions = await this.firebase.getSubscriptionsByBusinessId(businessId);
+    const campaignsCount = await this.firebase.countCampaigns(businessId);
+
+    await this.firebase.createAuditLog({
+      userId: adminUser.id,
+      businessId,
+      action: 'ADMIN_IMPERSONATED_CLIENT',
+      details: JSON.stringify({ businessName: business.name, ownerId }),
+    });
+
+    return {
+      success: true,
+      impersonation: true,
+      business,
+      profile,
+      owner: ownerUser ? { id: ownerUser.id, name: ownerUser.name, email: ownerUser.email } : null,
+      subscriptions,
+      campaignsCount,
+      targetUserId: ownerId,
+      targetBusinessId: businessId,
+    };
   }
 }

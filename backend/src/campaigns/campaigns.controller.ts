@@ -1,11 +1,31 @@
-import { Controller, Get, Post, Body, Param, Put, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, Query, UseGuards, Res } from '@nestjs/common';
 import { CampaignsService } from './campaigns.service';
+import { ReportGeneratorService } from './report-generator.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
 @Controller('campaigns')
 export class CampaignsController {
-  constructor(private readonly campaignsService: CampaignsService) {}
+  constructor(
+    private readonly campaignsService: CampaignsService,
+    private readonly reportGenerator: ReportGeneratorService,
+  ) {}
+
+  @Get(':businessId/report')
+  async downloadExecutiveReport(
+    @Param('businessId') businessId: string,
+    @Query('days') daysStr: string,
+    @Res() res: any,
+  ) {
+    const days = daysStr ? parseInt(daysStr, 10) : 30;
+    const report = await this.reportGenerator.generateExecutiveReport(businessId, days);
+    res.set({
+      'Content-Type': 'image/png',
+      'Content-Disposition': `attachment; filename="Executive_Performance_Report_${businessId}_${days}D.png"`,
+      'Cache-Control': 'private, no-store',
+    });
+    return res.send(report.reportBuffer);
+  }
 
   @Get(':businessId')
   async getCampaigns(@Param('businessId') businessId: string) {

@@ -12,7 +12,6 @@ import {
   AlertCircle,
   Shield,
   Cpu,
-  KeyRound,
 } from 'lucide-react';
 import { api } from '../services/api';
 import { auth } from '../services/firebase';
@@ -29,12 +28,6 @@ type AuthView = 'login' | 'register' | 'forgot' | 'verify';
 export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreensProps) {
   const [view, setView] = useState<AuthView>(defaultView || 'login');
   
-  // 2FA login states for Admin
-  const [loginStep, setLoginStep] = useState<'credentials' | '2fa'>('credentials');
-  const [twoFactorCode, setTwoFactorCode] = useState<string[]>(Array(6).fill(''));
-  const [tempAdminUser, setTempAdminUser] = useState<any>(null);
-  const inputRefs = React.useRef<(HTMLInputElement | null)[]>([]);
-
   useEffect(() => {
     if (defaultView) {
       setView(defaultView);
@@ -108,45 +101,6 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
     }
   };
 
-  const handle2FAChange = (index: number, val: string) => {
-    if (isNaN(Number(val))) return;
-    const newCode = [...twoFactorCode];
-    newCode[index] = val.slice(-1);
-    setTwoFactorCode(newCode);
-    if (val && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !twoFactorCode[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handle2FASubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = twoFactorCode.join('');
-    setErrorMessage(null);
-
-    if (code.length < 6) {
-      setErrorMessage('Please enter the full 6-digit authentication code.');
-      return;
-    }
-
-    setLoading(true);
-    setTimeout(() => {
-      if (code === '123456') {
-        addToast('2FA Verified', 'Access granted. Welcome to Admin Console.', 'success');
-        onAuthSuccess(tempAdminUser.user);
-      } else {
-        setErrorMessage('Security code is invalid or has expired.');
-        addToast('Security Failure', 'Invalid 2FA code.', 'alert');
-        setLoading(false);
-      }
-    }, 800);
-  };
-
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -157,14 +111,8 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
     setLoading(true);
     try {
       const res = await api.auth.login(email, password);
-      if (res.user?.role === 'ADMIN') {
-        setTempAdminUser(res);
-        setLoginStep('2fa');
-        addToast('Credentials Verified', 'Please complete Two-Factor Authentication (2FA).', 'info');
-      } else {
-        addToast('Welcome Back', `Logged in as ${res.user.name}`, 'success');
-        onAuthSuccess(res.user);
-      }
+      addToast('Welcome Back', `Logged in as ${res.user.name}`, 'success');
+      onAuthSuccess(res.user);
     } catch (err: any) {
       if (err.message === 'Please verify your email before continuing.') {
         setView('verify');
@@ -307,7 +255,7 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
 
           {/* ── LOGIN VIEW ─────────────────────────────────────────── */}
           {view === 'login' && (
-            loginStep === 'credentials' ? (
+            (
               <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 <div>
                   <label style={{ display: 'block', marginBottom: 6, fontSize: '0.85rem', fontWeight: 500, opacity: 0.9 }}>Business Email</label>
@@ -360,104 +308,8 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
                   {!loading && <ArrowRight size={16} />}
                 </button>
               </form>
-            ) : (
-              /* --- STEP 2: TWO-FACTOR AUTHENTICATION FORM FOR ADMIN --- */
-              <form onSubmit={handle2FASubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                  <div style={{
-                    width: 44, height: 44, borderRadius: 12,
-                    background: 'rgba(99, 102, 241, 0.15)', border: '1px solid var(--color-primary)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                  }}>
-                    <KeyRound size={20} style={{ color: 'var(--color-primary)' }} />
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Identity Verification</h3>
-                    <p style={{ fontSize: '0.75rem', color: '#10b981', display: 'flex', alignItems: 'center', gap: 4, marginTop: 1 }}>
-                      <CheckCircle size={12} /> Credentials accepted
-                    </p>
-                  </div>
-                </div>
-
-                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', lineHeight: 1.4 }}>
-                  A simulated verification code has been dispatched. Enter the code below to complete admin authorization.
-                </p>
-
-                {/* 2FA Digit Input Blocks */}
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', margin: '8px 0' }}>
-                  {twoFactorCode.map((val, idx) => (
-                    <input
-                      key={idx}
-                      ref={el => inputRefs.current[idx] = el}
-                      type="text"
-                      maxLength={1}
-                      value={val}
-                      onChange={e => handle2FAChange(idx, e.target.value)}
-                      onKeyDown={e => handleKeyDown(idx, e)}
-                      style={{
-                        width: '46px',
-                        height: '52px',
-                        borderRadius: '12px',
-                        border: val ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                        background: 'rgba(255,255,255,0.02)',
-                        textAlign: 'center',
-                        fontSize: '1.4rem',
-                        fontWeight: 700,
-                        color: '#ffffff',
-                        outline: 'none',
-                      }}
-                    />
-                  ))}
-                </div>
-
-                <div 
-                  onClick={() => setTwoFactorCode(['1', '2', '3', '4', '5', '6'])}
-                  style={{
-                    background: 'rgba(99, 102, 241, 0.08)',
-                    border: '1px solid rgba(99, 102, 241, 0.15)',
-                    padding: '12px 14px',
-                    borderRadius: 12,
-                    fontSize: '0.75rem',
-                    color: '#93c5fd',
-                    lineHeight: 1.4,
-                    cursor: 'pointer',
-                    transition: 'background 0.2s'
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.15)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(99, 102, 241, 0.08)'}
-                >
-                  <strong>Developer Notice:</strong> Click here to autofill test token <strong>123456</strong> to proceed.
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <button
-                    className="btn-primary"
-                    type="submit"
-                    disabled={loading}
-                    style={{
-                      justifyContent: 'center',
-                      padding: '12px',
-                      fontSize: '0.95rem',
-                      fontWeight: 600,
-                    }}
-                  >
-                    {loading ? <Cpu className="animate-spin" size={18} /> : <span>Confirm Verification</span>}
-                    {!loading && <ArrowRight size={18} />}
-                  </button>
-
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => { setLoginStep('credentials'); setErrorMessage(null); }}
-                    style={{ justifyContent: 'center', gap: 8 }}
-                  >
-                    <ArrowLeft size={16} /> Back to Credentials
-                  </button>
-                </div>
-              </form>
             )
           )}
-
           {/* ── REGISTER VIEW ──────────────────────────────────────── */}
           {view === 'register' && (
             <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -593,7 +445,7 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
           )}
 
           {/* ── GOOGLE SIGN IN BUTTON ──────────────────────────────── */}
-          {(view === 'login' || view === 'register') && loginStep === 'credentials' && (
+          {(view === 'login' || view === 'register') && (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '4px 0' }}>
                 <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
@@ -628,7 +480,7 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
               )}
 
               {/* Test Credentials Helper Card */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12 }}>
+              <div style={{ display: 'none' }} aria-hidden="true">
                 {/* Test credentials helper */}
                 <div style={{
                   background: 'rgba(255,255,255,0.02)',

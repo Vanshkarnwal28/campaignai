@@ -34,6 +34,52 @@ export class AdminController {
     return this.adminService.getBusinesses(req.user);
   }
 
+  @Put('businesses/:id/profile')
+  async updateBusinessProfile(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    return this.adminService.updateBusinessProfile(req.user, id, body);
+  }
+
+  @Post('businesses/:id/seo-audit')
+  async runSeoAudit(@Request() req: any, @Param('id') id: string, @Body() body: { url: string }) {
+    return this.adminService.runSeoAudit(req.user, id, body?.url);
+  }
+
+  @Get('businesses/:id/seo-profile')
+  async getSeoProfile(@Request() req: any, @Param('id') id: string) {
+    return this.adminService.getSeoProfile(req.user, id);
+  }
+
+  @Put('businesses/:id/seo-profile')
+  async updateSeoProfile(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    return this.adminService.updateSeoProfile(req.user, id, body);
+  }
+
+  @Post('businesses/:id/invoice/send')
+  async sendInvoiceEmail(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { invoiceId?: string },
+  ) {
+    return this.adminService.sendInvoiceEmail(req.user, id, body?.invoiceId);
+  }
+
+  @Put('businesses/:id/subscription')
+  async updateSubscription(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { plan: string },
+  ) {
+    return this.adminService.updateSubscription(req.user, id, body.plan);
+  }
+
   @Get('campaigns')
   async getCampaigns(@Request() req: any) {
     return this.adminService.getAllCampaigns(req.user);
@@ -51,6 +97,11 @@ export class AdminController {
   @Get('subscriptions')
   async getSubscriptions(@Request() req: any) {
     return this.adminService.getAllSubscriptions(req.user);
+  }
+
+  @Get('payments')
+  async getPayments(@Request() req: any) {
+    return this.adminService.getAllPayments(req.user);
   }
 
   @Get('tickets')
@@ -105,5 +156,10 @@ export class AdminController {
     @Body() body: any,
   ) {
     return this.adminService.updatePlatformSettings(req.user, body);
+  }
+
+  @Post('impersonate/:businessId')
+  async impersonateClient(@Request() req: any, @Param('businessId') businessId: string) {
+    return this.adminService.impersonateClient(req.user, businessId);
   }
 }

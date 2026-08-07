@@ -12,6 +12,18 @@ export const PLAN_PRICING_MAP: Record<string, PlanPricing> = {
     currency: 'INR',
     description: 'CampaignAI Free Starter Plan',
   },
+  DEMO_TEST: {
+    name: 'DEMO_TEST',
+    amount: 1.00,
+    currency: 'INR',
+    description: 'CampaignAI Demo Test Plan - ₹1 Instant Mojo Checkout',
+  },
+  DEMO_1INR: {
+    name: 'DEMO_1INR',
+    amount: 1.00,
+    currency: 'INR',
+    description: 'CampaignAI Demo Test Plan - ₹1 Instant Mojo Checkout',
+  },
   STARTER: {
     name: 'STARTER',
     amount: 1499.00,
@@ -36,7 +48,7 @@ export function getPlanPricing(planName: string): PlanPricing {
   const normalized = (planName || '').trim().toUpperCase();
   const pricing = PLAN_PRICING_MAP[normalized];
   if (!pricing) {
-    throw new Error(`Invalid subscription plan: '${planName}'. Allowed plans: STARTER, PRO, ENTERPRISE, FREE`);
+    throw new Error(`Invalid subscription plan: '${planName}'. Allowed plans: DEMO_TEST, DEMO_1INR, STARTER, PRO, ENTERPRISE, FREE`);
   }
   return pricing;
 }

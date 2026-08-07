@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/com
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { FirebaseService } from '../firebase/firebase.service';
 import { IntegrationsService } from '../integrations/integrations.service';
+import { AiService } from '../ai/ai.service';
 import { calculateNext10AMSlot } from '../utils/timezone-scheduler';
 import { publishOrganicSimultaneously } from '../lib/meta/organic-publisher';
 import { generateScheduleSlots, calculateNext10AM, ScheduleRule, isValidScheduleRule } from '../lib/scheduler/time-engine';
@@ -22,6 +23,7 @@ export class SchedulerService implements OnModuleInit {
     private readonly firebase: FirebaseService,
     private readonly integrations: IntegrationsService,
     private readonly rabbitmq: RabbitMqService,
+    private readonly aiService: AiService,
   ) {}
 
   async onModuleInit() {
@@ -67,6 +69,15 @@ export class SchedulerService implements OnModuleInit {
     });
 
     this.logger.log(`Post scheduled: ${post.id} for ${scheduledTime.toISOString()} on ${data.platform}`);
+    const business = await this.firebase.getBusinessById(data.businessId);
+    if (business?.ownerId) {
+      await this.firebase.createAuditLog({
+        userId: business.ownerId,
+        businessId: data.businessId,
+        action: 'POST_SCHEDULED',
+        details: JSON.stringify({ postId: post.id, platform: data.platform, scheduledTime: scheduledTime.toISOString() }),
+      });
+    }
     await this.rabbitmq.enqueueScheduledPost(post.id, scheduledTime);
     return { success: true, post };
   }
@@ -188,6 +199,16 @@ export class SchedulerService implements OnModuleInit {
       publishResult,
     });
 
+    const business = await this.firebase.getBusinessById(post.businessId);
+    if (business?.ownerId) {
+      await this.firebase.createAuditLog({
+        userId: business.ownerId,
+        businessId: post.businessId,
+        action: isSuccess ? 'POST_PUBLISHED' : 'POST_PUBLISH_FAILED',
+        details: JSON.stringify({ postId, platform: post.platform, publishResult }),
+      });
+    }
+
     if (post.calendarEntryId && isSuccess) {
       try {
         await this.firebase.updateContentCalendarEntry(post.calendarEntryId, {
@@ -206,15 +227,50 @@ export class SchedulerService implements OnModuleInit {
     };
   }
 
-  // ─── Cron Job: Auto Publishing ────────────────────────────────────────────────
+  // ─── Cron Job 1: Auto Publishing (Runs Every Minute) ──────────────────────────
 
   /**
-   * Runs every 5 minutes — finds due SCHEDULED posts and publishes them.
-   * Phase 4: Actually posts to Meta Graph API (Facebook Pages + Instagram).
+   * Runs every minute — finds due SCHEDULED posts and executes them automatically.
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @Cron(CronExpression.EVERY_MINUTE)
   async handleCronPublishing() {
     await this.triggerAutomatedPosting();
+  }
+
+  // ─── Cron Job 2: Automated Daily AI Post Generation & Replenishment ──────────
+
+  /**
+   * Runs every night at Midnight — automatically generates fresh AI posts for all businesses.
+   */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async handleCronAutoReplenish() {
+    this.logger.log('[Cron Job] Running automated daily AI post generation & replenishment…');
+    try {
+      const snap = await this.firebase.col('businesses').get();
+      const businesses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      for (const bus of businesses) {
+        try {
+          const upcomingPosts = await this.firebase.getScheduledPostsByBusinessId(bus.id);
+          const activeUpcoming = (upcomingPosts || []).filter((p: any) => p.status === 'SCHEDULED');
+
+          if (activeUpcoming.length < 7) {
+            this.logger.log(`[Cron Job] Business ${bus.id} (${(bus as any).name || 'Unnamed'}) has only ${activeUpcoming.length} scheduled posts. Auto-generating next week's AI posts…`);
+            await this.scheduleInstantWeek({
+              businessId: bus.id,
+              count: 7,
+              daysMode: 'everyday',
+              publishTime: '10:00 AM',
+            });
+            this.logger.log(`[Cron Job] Successfully auto-generated 7 new AI posts for business ${bus.id}`);
+          }
+        } catch (bErr: any) {
+          this.logger.error(`[Cron Job] Failed auto-generation for business ${bus.id}: ${bErr.message}`);
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`[Cron Job] Failed execution of handleCronAutoReplenish: ${err.message}`);
+    }
   }
 
   /**
@@ -235,10 +291,8 @@ export class SchedulerService implements OnModuleInit {
 
     for (const post of duePosts) {
       try {
-        // Mark as PUBLISHING
         await this.firebase.updateScheduledPost(post.id, { status: 'PUBLISHING' });
 
-        // Phase 4: Attempt real Meta publishing
         let publishResult: any = null;
         try {
           publishResult = await this.publishToMeta(post);
@@ -250,14 +304,12 @@ export class SchedulerService implements OnModuleInit {
         const publishSucceeded = publishResult?.success !== false;
         const finalStatus = publishSucceeded ? 'PUBLISHED' : 'FAILED';
 
-        // Only mark a post as published when Meta confirmed the requested publish.
         await this.firebase.updateScheduledPost(post.id, {
           status: finalStatus,
           ...(publishSucceeded ? { publishedAt: new Date() } : {}),
           publishResult,
         });
 
-        // Also update linked calendar entry if exists
         if (post.calendarEntryId && publishSucceeded) {
           try {
             await this.firebase.updateContentCalendarEntry(post.calendarEntryId, {
@@ -284,7 +336,6 @@ export class SchedulerService implements OnModuleInit {
       }
     }
 
-    // Also handle legacy contentCalendar entries (backward compat)
     const businesses = await this.firebase.getAllBusinesses();
     for (const business of businesses) {
       try {
@@ -400,7 +451,7 @@ export class SchedulerService implements OnModuleInit {
     headline?: string;
     hashtags?: string[];
     timezone?: string;
-    platforms?: string; // 'both' | 'facebook' | 'instagram'
+    platforms?: string;
   }) {
     const slotResult = calculateNext10AMSlot(data.timezone);
     const scheduledTime = slotResult.targetDate;
@@ -432,7 +483,6 @@ export class SchedulerService implements OnModuleInit {
 
   /**
    * Schedules a batch of organic posts at computed 10:00 AM slots using a schedule rule.
-   * Creates multiple Firestore documents — one for each time slot.
    */
   async scheduleOrganicBatch(data: {
     businessId: string;
@@ -441,7 +491,7 @@ export class SchedulerService implements OnModuleInit {
     headline?: string;
     hashtags?: string[];
     timezone?: string;
-    platforms?: string; // 'both' | 'facebook' | 'instagram'
+    platforms?: string;
     scheduleRule?: string;
     count?: number;
   }) {
@@ -449,7 +499,7 @@ export class SchedulerService implements OnModuleInit {
       ? (data.scheduleRule as ScheduleRule) 
       : 'daily_10am';
     const tz = data.timezone || 'UTC';
-    const count = Math.min(data.count || 10, 30); // Cap at 30 slots
+    const count = Math.min(data.count || 10, 30);
 
     const batchResult = generateScheduleSlots(rule, tz, count);
     const batchId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -499,10 +549,12 @@ export class SchedulerService implements OnModuleInit {
     };
   }
 
-  /** Build a distinct business-aware plan for the Instant Posts panel. */
+  /** Build a distinct business-aware plan for the Instant Posts panel with AI captions and unique images. */
   async scheduleInstantWeek(data: {
     businessId: string;
     count?: number;
+    daysMode?: string;
+    publishTime?: string;
     platforms?: string;
     timezone?: string;
   }) {
@@ -511,52 +563,170 @@ export class SchedulerService implements OnModuleInit {
     if (!business && !profile) throw new NotFoundException('Business profile not found');
 
     const businessName = profile?.businessName || business?.name || 'Your business';
-    const category = profile?.businessCategory || profile?.industry || business?.niche || 'your industry';
-    const goal = profile?.businessGoals || 'grow your audience';
-    const usp = profile?.businessUSP || 'quality and personal service';
-    const count = Math.min(Math.max(Number(data.count) || 5, 1), 10);
-    const templates = [
-      [`Meet ${businessName}`, `Discover what makes ${businessName} different in ${category}. ${usp}. Follow along and see how we help you ${goal}.`],
-      ['A helpful tip for you', `One simple ${category} tip from ${businessName}: focus on the small improvements that make a big difference. Save this for later and share it with someone who needs it.`],
-      ['Behind the business', `A little behind-the-scenes from ${businessName}. We care about thoughtful work, reliable results, and the people we serve. What would you like us to show next?`],
-      ['Community spotlight', `We are grateful for the ${businessName} community. Tell us your biggest ${category} challenge and our team will share a practical idea to help.`],
-      ['Your next step', `Ready to ${goal}? ${businessName} is here to help with ${usp}. Send us a message or visit us to get started.`],
-      ['Frequently asked', `People ask us about ${category} all the time. Drop your question below and ${businessName} will answer it in the next post.`],
-      ['Weekly recap', `This week at ${businessName}: useful ideas, real conversations, and steady progress toward better ${category}. Thanks for being here.`],
+    const category = profile?.businessCategory || profile?.industry || business?.niche || 'Ecommerce & Retail';
+    const productsServices = profile?.productsServices || profile?.products || 'clothes, apparel, and fashion accessories';
+    const targetAudience = profile?.targetAudience || 'fashion enthusiasts';
+    const goal = profile?.businessGoals || 'increase sales & brand awareness';
+    const usp = profile?.businessUSP || 'premium quality and 24/7 support';
+    const brandTone = profile?.brandTone || profile?.brandVoice || 'vibrant and stylish';
+    const location = profile?.location || '';
+
+    let targetHours = 10;
+    let targetMinutes = 0;
+    if (data.publishTime) {
+      const timeStr = String(data.publishTime).trim().toUpperCase();
+      const isPM = timeStr.includes('PM');
+      const isAM = timeStr.includes('AM');
+      const cleanTime = timeStr.replace(/(AM|PM)/g, '').trim();
+      const parts = cleanTime.split(':');
+      if (parts.length >= 1) {
+        let h = parseInt(parts[0], 10);
+        if (!isNaN(h)) {
+          if (isPM && h < 12) h += 12;
+          if (isAM && h === 12) h = 0;
+          targetHours = Math.min(Math.max(h, 0), 23);
+        }
+      }
+      if (parts.length >= 2) {
+        let m = parseInt(parts[1], 10);
+        if (!isNaN(m)) {
+          targetMinutes = Math.min(Math.max(m, 0), 59);
+        }
+      }
+    }
+
+    const daysMode = data.daysMode || (Number(data.count) === 7 ? 'everyday' : 'workdays');
+    const targetCount = Math.min(Math.max(Number(data.count) || (daysMode === 'everyday' ? 7 : 5), 1), 30);
+
+    const existingPosts = await this.firebase.getScheduledPostsByBusinessId(data.businessId);
+    const existingHeadlines = new Set((existingPosts || []).map((p: any) => (p.headline || '').trim().toLowerCase()));
+
+    const postBlueprints = [
+      { tag: 'Customer Story', headline: `Why customers choose ${businessName}`, imageTheme: `happy customer wearing ${productsServices}` },
+      { tag: 'Style Tip', headline: `Styling tip for ${productsServices}`, imageTheme: `fashion aesthetic outfit display ${productsServices}` },
+      { tag: 'Behind The Scenes', headline: `Crafting quality ${productsServices} at ${businessName}`, imageTheme: `tailoring design studio fabric ${productsServices}` },
+      { tag: 'Value Proposition', headline: `What makes ${businessName} ${productsServices} unique`, imageTheme: `premium luxury fashion showcase ${productsServices}` },
+      { tag: 'Call to Action', headline: `Upgrade your collection with ${businessName}`, imageTheme: `modern fashion boutique store ${productsServices}` },
+      { tag: 'FAQ', headline: `Top questions about ${businessName} ${productsServices}`, imageTheme: `fashion shopping catalog clean ${productsServices}` },
+      { tag: 'Weekly Highlight', headline: `This week's trending ${productsServices}`, imageTheme: `vibrant fashion model photoshoot ${productsServices}` },
+      { tag: 'Product Spotlight', headline: `Spotlight: ${productsServices} by ${businessName}`, imageTheme: `minimalist product photography ${productsServices}` },
+      { tag: 'Tutorial', headline: `How to style ${productsServices} effortlessly`, imageTheme: `fashion mannequin style guide ${productsServices}` },
+      { tag: 'Special Offer', headline: `Exclusive ${businessName} offer on ${productsServices}`, imageTheme: `luxury shopping bag boutique discount` },
     ];
+
+    const buildImageUrl = (theme: string, postIndex: number): string => {
+      const promptText = `professional high resolution product photograph of ${productsServices} for brand ${businessName}, ${theme}, commercial fashion photography, studio lighting, 4k`;
+      return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=1080&height=1080&nologo=true`;
+    };
 
     const posts: any[] = [];
     const cursor = new Date();
     const batchId = `instant_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    for (let index = 0; posts.length < count && index < 21; index++) {
+    let blueprintIndex = Math.floor(Math.random() * postBlueprints.length);
+
+    for (let index = 0; posts.length < targetCount && index < 60; index++) {
       cursor.setDate(cursor.getDate() + (index === 0 ? 0 : 1));
-      if (cursor.getDay() === 0 || cursor.getDay() === 6) continue;
-      const [headline, caption] = templates[posts.length % templates.length];
+      const dayOfWeek = cursor.getDay();
+
+      if (daysMode === 'workdays' && (dayOfWeek === 0 || dayOfWeek === 6)) continue;
+      if (daysMode === '3days' && (dayOfWeek === 0 || dayOfWeek === 2 || dayOfWeek === 4 || dayOfWeek === 6)) continue;
+
+      const blueprint = postBlueprints[blueprintIndex % postBlueprints.length];
+      blueprintIndex++;
+
+      let headline = blueprint.headline;
+      let variantCount = 1;
+      while (existingHeadlines.has(headline.toLowerCase())) {
+        variantCount++;
+        headline = `${blueprint.headline} (Vol. ${variantCount})`;
+      }
+      existingHeadlines.add(headline.toLowerCase());
+
+      let caption = '';
+      let hashtags: string[] = [];
+
+      try {
+        const systemPrompt = `You are an expert social media copywriter for ${businessName}. Write complete, engaging social media post captions tailored specifically to ${businessName}. Do NOT use markdown asterisks (**) or header hashes (#). Do NOT truncate or cut off captions mid-sentence. Always end with a complete sentence and a punchy call to action.`;
+        const userPrompt = `Write a unique, complete, high-converting social media caption for a "${blueprint.tag}" post.
+Business Name: ${businessName}
+Industry: ${category}
+Products / Services: ${productsServices}
+Target Audience: ${targetAudience}
+Brand Tone: ${brandTone}
+Unique Selling Point (USP): ${usp}
+Business Goal: ${goal}
+${location ? `Location: ${location}` : ''}
+Post Title: "${headline}"
+
+Instructions:
+- Write a COMPLETE 3-5 sentence caption (200-350 characters) featuring ${productsServices} for ${targetAudience}.
+- Highlight ${businessName}'s USP (${usp}) in a ${brandTone} tone.
+- Ensure the caption ends cleanly with a clear call-to-action (e.g., "Shop now at link in bio! ✨").
+- Do NOT cut off mid-sentence!
+
+Format strictly as:
+CAPTION: <your full complete caption here>
+HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
+
+        const aiResponse = await this.aiService.chat(systemPrompt, userPrompt, 0.85, 1200, 'SchedulerService.scheduleInstantWeek');
+
+        if (aiResponse && aiResponse.trim()) {
+          const captionMatch = aiResponse.match(/CAPTION:\s*([\s\S]*?)(?=HASHTAGS:|$)/i);
+          const hashtagsMatch = aiResponse.match(/HASHTAGS:\s*([\s\S]*)/i);
+
+          if (captionMatch?.[1]?.trim()) {
+            caption = captionMatch[1].trim().replace(/\*\*(.*?)\*\*/g, '$1');
+          }
+          if (hashtagsMatch?.[1]?.trim()) {
+            const rawTags = hashtagsMatch[1].trim().split(/[\s,]+/).filter(t => t.startsWith('#'));
+            hashtags = rawTags.slice(0, 10);
+          }
+        }
+      } catch (aiErr: any) {
+        this.logger.warn(`[InstantWeek] AI caption generation failed for post ${posts.length + 1}: ${aiErr.message}`);
+      }
+
+      if (!caption) {
+        caption = `Discover what makes ${productsServices} from ${businessName} exceptional. Designed for ${targetAudience}, we bring you ${usp}. Explore our collection today and elevate your experience! 🚀`;
+      }
+      if (!hashtags.length) {
+        const catTag = `#${String(category).replace(/[^a-z0-9]/gi, '')}`;
+        const bizTag = `#${String(businessName).replace(/[^a-z0-9]/gi, '')}`;
+        const prodTag = `#${String(productsServices.split(',')[0] || 'Products').replace(/[^a-z0-9]/gi, '')}`;
+        hashtags = [catTag, bizTag, prodTag, '#DIPARIAI', '#SmallBusiness', '#SocialMedia', '#Style', '#Quality'];
+      }
+
+      const imageUrl = buildImageUrl(blueprint.imageTheme, posts.length);
+
       const scheduledTime = new Date(cursor);
-      scheduledTime.setHours(10, 0, 0, 0);
-      posts.push(await this.firebase.createScheduledPost({
+      scheduledTime.setHours(targetHours, targetMinutes, 0, 0);
+
+      const newPost = await this.firebase.createScheduledPost({
         businessId: data.businessId,
         headline,
         caption,
-        hashtags: [`#${String(category).replace(/[^a-z0-9]/gi, '')}`, '#DIPARIAI'],
+        hashtags,
+        imageUrl,
         platform: data.platforms || 'both',
         scheduledTime,
-        postType: 'Instant Business Post',
+        postType: `${blueprint.tag} Post`,
         status: 'SCHEDULED',
         publishResult: null,
         timezone: data.timezone || 'Asia/Kolkata',
         batchId,
         batchType: 'INSTANT_WEEK',
-        publishLogs: [{ timestamp: new Date().toISOString(), action: 'INSTANT_PLAN_CREATED', details: `Business-aware post ${posts.length + 1}/${count}` }],
-      } as any));
-      await this.rabbitmq.enqueueScheduledPost(posts[posts.length - 1].id, scheduledTime);
+        publishLogs: [{ timestamp: new Date().toISOString(), action: 'INSTANT_PLAN_CREATED', details: `${blueprint.tag} post ${posts.length + 1}/${targetCount} scheduled for ${scheduledTime.toLocaleString()}` }],
+      } as any);
+
+      posts.push(newPost);
+      await this.rabbitmq.enqueueScheduledPost(newPost.id, scheduledTime);
     }
+
     return { success: true, batchId, count: posts.length, posts };
   }
 
   /**
    * Worker handler executed at 10:00 AM: fetches post payload and calls Facebook & Instagram simultaneous endpoints using Promise.all().
-   * Enhanced with detailed publish logs for audit trail.
    */
   async executeOrganicPublishWorker(postId: string) {
     this.logger.log(`[Organic Publish Worker] Executing 10:00 AM worker task for post: ${postId}`);

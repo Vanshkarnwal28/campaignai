@@ -54,18 +54,32 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
 
   const handleStep1Submit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Required field guard (Website URL is intentionally optional)
+    const requiredFields: { key: keyof typeof basicDetails; label: string }[] = [
+      { key: 'name', label: 'Campaign Name' },
+      { key: 'objective', label: 'Objective' },
+      { key: 'dailyBudget', label: 'Daily Budget' },
+      { key: 'businessName', label: 'Business Name' },
+      { key: 'industry', label: 'Industry' },
+      { key: 'festivalTheme', label: 'Festival / Event Theme' },
+      { key: 'targetCountry', label: 'Target Country' },
+    ];
+    const missing = requiredFields.find(f => !String(basicDetails[f.key]).trim());
+    if (missing) {
+      addToast('Required field missing', `Please fill in: ${missing.label}`, 'alert');
+      return;
+    }
+
     setLoading(true);
     addToast('Analyzing inputs', 'Generating AI strategy based on your theme...', 'info');
     try {
-      const payload = {
-        ...basicDetails,
-      };
+      const payload = { ...basicDetails };
       const draft = await api.campaigns.createDraft(businessId, payload);
       setDraftId(draft.id);
-      
       const strategy = await api.campaigns.generateDraftStrategy(businessId, draft.id);
       setGeneratedStrategy(strategy);
-      setStep(2); // Move to Strategy Review
+      setStep(2);
       addToast('AI Strategy Generated', 'Review estimated ROAS, target specs, and visual prompts.', 'success');
     } catch (err: any) {
       addToast('Strategy Build Failed', err.message, 'alert');
@@ -123,12 +137,13 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
               <div>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem', fontWeight: 600 }}>Objective</label>
+                <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem', fontWeight: 600 }}>Objective <span style={{ color: '#f87171' }}>*</span></label>
                 <select 
                   className="form-input" 
                   value={basicDetails.objective} 
                   onChange={e => setBasicDetails({...basicDetails, objective: e.target.value})}
                   style={{ background: 'rgba(15,23,42,0.1)' }}
+                  required
                 >
                   <option value="CONVERSIONS">Conversions (Sales)</option>
                   <option value="LEAD_GEN">Lead Generation</option>
@@ -160,14 +175,15 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem', fontWeight: 600 }}>Website URL</label>
+                <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem', fontWeight: 600 }}>
+                  Website URL <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 400 }}>(optional)</span>
+                </label>
                 <input 
                   className="form-input" 
                   type="url" 
                   placeholder="https://omni-retail.com" 
                   value={basicDetails.website} 
                   onChange={e => setBasicDetails({...basicDetails, website: e.target.value})} 
-                  required 
                 />
               </div>
             </div>
@@ -187,7 +203,7 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
 
             <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: 20 }}>
               <div>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem', fontWeight: 600 }}>Festival / Event Theme</label>
+                <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem', fontWeight: 600 }}>Festival / Event Theme <span style={{ color: '#f87171' }}>*</span></label>
                 <input 
                   className="form-input" 
                   placeholder="e.g. Diwali, Black Friday, Christmas" 

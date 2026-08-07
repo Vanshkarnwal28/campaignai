@@ -198,14 +198,24 @@ h1, h2, h3, h4, h5, h6 {
 /* Form Styling */
 .form-input {
   width: 100%;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid var(--color-border);
+  background: #ffffff;
+  border: 1.5px solid #cbd5e1;
   border-radius: 12px;
   padding: 14px 18px;
-  color: var(--color-text-main);
+  color: #1e293b;
   font-family: var(--font-sans);
   font-size: 0.95rem;
   transition: var(--transition-smooth);
+}
+
+.form-input:focus {
+  border-color: #6366f1;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+.form-input::placeholder {
+  color: #94a3b8;
 }
 
 .form-input:focus {
@@ -248,4 +258,19 @@ h1, h2, h3, h4, h5, h6 {
     transform: translateY(0) scale(1);
     opacity: 1;
   }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
 }

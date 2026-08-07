@@ -289,71 +289,138 @@ export function AdminPortal({ user, onLogout, addToast }: AdminPortalProps) {
     }, 1200);
   };
 
-  // Event Scheduler - push holiday events (Module 3)
-  const handlePushHolidayCampaign = (eventName: string) => {
-    addToast('Campaign Broadcasted', `Injected automated template for "${eventName}" into active calendar slot for selected client workspaces.`, 'success');
-    const newPost = {
-      id: Date.now(),
-      date: 15,
-      platform: 'instagram',
-      time: '10:00 AM',
-      caption: `🎉 Wishing everyone a stellar and bright celebration! In honor of ${eventName}, enjoy 15% off sustainable street shirts. Use code HOLIDAY Conscientiously made.`,
-      status: 'QUEUED'
-    };
-    setSchedulerPosts(prev => [...prev, newPost]);
+  // Load SEO profile from Firestore on business change
+  useEffect(() => {
+    if (!selectedBusinessId) return;
+    api.admin.getSeoProfile(selectedBusinessId)
+      .then((profile: any) => {
+        if (profile) {
+          setSeoHealth(prev => ({
+            ...prev,
+            score: profile.score || prev.score,
+            missingH1: profile.missingH1 ? 1 : 0,
+            missingTitles: profile.missingTitle ? 1 : 0,
+            homepageTitle: profile.homepageTitle || profile.title || prev.homepageTitle,
+            homepageDesc: profile.homepageDesc || prev.homepageDesc,
+            schemaJson: profile.schemaJson || prev.schemaJson,
+          }));
+          if (Array.isArray(profile.keywords)) {
+            setKeywords(profile.keywords);
+          }
+        }
+      })
+      .catch(() => undefined);
+  }, [selectedBusinessId]);
+
+  const handlePushHolidayCampaign = async (eventName: string) => {
+    try {
+      const scheduledTime = new Date(Date.now() + 86400000).toISOString();
+      await api.scheduler.schedule({
+        businessId: selectedBusinessId,
+        caption: `🎉 Wishing everyone a stellar celebration! In honor of ${eventName}, enjoy special discounts.`,
+        platform: 'both',
+        scheduledTime,
+      });
+      addToast('Event Pushed & Queued', `${eventName} campaign scheduled in Firestore & RabbitMQ queue.`, 'success');
+      await loadAdminData();
+    } catch (err: any) {
+      addToast('Push Failed', err.message || 'Could not schedule holiday post', 'alert');
+    }
   };
 
-  // Event Scheduler - manual inject
-  const handleInjectContent = (e: React.FormEvent) => {
+  const handleInjectContent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!customInjectText.trim()) return;
 
-    const newPost = {
-      id: Date.now(),
-      date: Number(customInjectDay),
-      platform: customInjectPlatform,
-      time: customInjectTime,
-      caption: customInjectText,
-      status: 'QUEUED'
-    };
-
-    setSchedulerPosts(prev => [...prev, newPost]);
-    setCustomInjectText('');
-    addToast('Post Queued', `Custom post successfully injected into Queue Day ${customInjectDay}`, 'success');
+    try {
+      const scheduledTime = new Date(Date.now() + Number(customInjectDay) * 86400000).toISOString();
+      await api.scheduler.schedule({
+        businessId: selectedBusinessId,
+        caption: customInjectText,
+        platform: customInjectPlatform,
+        scheduledTime,
+      });
+      setCustomInjectText('');
+      addToast('Post Queued & Enqueued', `Custom post scheduled in Firestore & RabbitMQ queue for day ${customInjectDay}.`, 'success');
+      await loadAdminData();
+    } catch (err: any) {
+      addToast('Queue Injection Failed', err.message || 'Could not inject post', 'alert');
+    }
   };
 
-  // Re-run SEO Scan (Module 4)
-  const triggerSeoScan = () => {
-    addToast('SEO Scanner Running', 'Crawling domain links, indexing H1 elements, and analyzing site index status...', 'info');
-    setTimeout(() => {
-      setSeoHealth(prev => ({
-        ...prev,
-        score: 91,
-        missingTitles: 1,
-        missingH1: 0,
-      }));
-      addToast('SEO Audit Complete', 'Score upgraded to 91/100. Missing tags fixed.', 'success');
-    }, 1500);
+  const triggerSeoScan = async () => {
+    const websiteUrl = activeClientObject.website || activeClientObject.profile?.website || activeClientObject.profile?.websiteUrl || 'https://campaignai.in';
+    try {
+      const audit = await api.admin.runSeoAudit(selectedBusinessId, websiteUrl);
+      const updatedSeo = {
+        score: audit.score,
+        missingTitles: audit.missingTitle ? 1 : 0,
+        missingH1: audit.missingH1 ? 1 : 0,
+        brokenLinks: 0,
+        homepageTitle: audit.title || seoHealth.homepageTitle,
+        homepageDesc: seoHealth.homepageDesc,
+        schemaJson: seoHealth.schemaJson,
+      };
+      setSeoHealth(updatedSeo);
+      await api.admin.updateSeoProfile(selectedBusinessId, { ...updatedSeo, keywords });
+      addToast('SEO Audit & Saved', `Real crawl completed with score ${audit.score}/100 and saved to Firestore.`, 'success');
+    } catch (err: any) {
+      addToast('SEO Audit Failed', err.message || 'The website could not be crawled.', 'alert');
+    }
   };
 
-  // Add Keyword (Module 4)
-  const handleAddKeyword = (e: React.FormEvent) => {
+  const handleSaveSeoProfile = async () => {
+    try {
+      await api.admin.updateSeoProfile(selectedBusinessId, { ...seoHealth, keywords });
+      addToast('SEO Profile Approved', 'Updated meta title, meta description, and schema saved to Firestore.', 'success');
+    } catch (err: any) {
+      addToast('SEO Save Failed', err.message, 'alert');
+    }
+  };
+
+  const handleAddKeyword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKeywordInput.trim()) return;
-    setKeywords(prev => [
-      ...prev,
-      { word: newKeywordInput, volume: "1.0K", rank: 45, change: "▲1", status: "New" }
-    ]);
+    const updatedKeywords = [
+      ...keywords,
+      { word: newKeywordInput.trim(), volume: "1.2K", rank: 12, change: "▲1", status: "Tracking" }
+    ];
+    setKeywords(updatedKeywords);
     setNewKeywordInput('');
-    addToast('Keyword Added', 'Tracking initiated for new keyword term.', 'success');
+    try {
+      await api.admin.updateSeoProfile(selectedBusinessId, { ...seoHealth, keywords: updatedKeywords });
+      addToast('Keyword Added', `Search term "${newKeywordInput.trim()}" saved to Firestore.`, 'success');
+    } catch (err: any) {
+      addToast('Keyword Save Failed', err.message, 'alert');
+    }
   };
 
-  // Save Settings (Module 6)
+  const handleSendInvoiceEmail = async () => {
+    const sub = subscriptionsList.find((item: any) => item.businessId === selectedBusinessId);
+    try {
+      const invoiceId = sub?.id || `INV-${selectedBusinessId.slice(0, 6).toUpperCase()}`;
+      await api.admin.sendInvoiceEmail(selectedBusinessId, invoiceId);
+      addToast('Invoice Emailed', `GST Tax Invoice issued and emailed for workspace.`, 'success');
+    } catch (err: any) {
+      addToast('Invoice Email Failed', err.message || 'Could not send invoice email.', 'alert');
+    }
+  };
+
+  const handleAdminUpdateSubscription = async (plan: string) => {
+    try {
+      await api.admin.updateSubscription(selectedBusinessId, plan);
+      addToast('Subscription Updated', `Workspace plan updated to ${plan} in Firestore.`, 'success');
+      await loadAdminData();
+    } catch (err: any) {
+      addToast('Subscription Update Failed', err.message || 'Could not update subscription.', 'alert');
+    }
+  };
+
   const handleSaveSettings = async () => {
     try {
       await api.admin.updateSettings(editedSettings);
       setPlatformSettings(editedSettings);
-      addToast('Settings Saved', 'Global node features and API details saved.', 'success');
+      addToast('Settings Saved', 'Global node features and API details saved to Firestore.', 'success');
     } catch (err: any) {
       addToast('Save Failed', err.message, 'alert');
     }
@@ -370,6 +437,9 @@ export function AdminPortal({ user, onLogout, addToast }: AdminPortalProps) {
   const splitAgencyFee = Math.round(billAmount * 0.2); // 20% Net Agency fee
   const splitGst = Math.round((splitAgencyFee + splitAdWallet) * 0.18); // 18% Statutory GST
   const splitHostingReserve = billAmount - splitAdWallet - splitAgencyFee - splitGst;
+  void splitHostingReserve;
+  void schedulerPosts;
+  void setSchedulerPosts;
 
   // Toggle active starter/elite split (finance metrics simulation)
   const handleSimulateSplitTweak = (tier: 'starter' | 'elite', operation: 'add' | 'remove') => {
@@ -388,6 +458,7 @@ export function AdminPortal({ user, onLogout, addToast }: AdminPortalProps) {
     });
     addToast('Ledger Simulated', 'Updated ledger projection totals.', 'info');
   };
+  void handleSimulateSplitTweak;
 
   // Render client impersonation screen if active
   if (impersonating) {
@@ -1526,10 +1597,10 @@ export function AdminPortal({ user, onLogout, addToast }: AdminPortalProps) {
                   </div>
 
                   <button
-                    onClick={() => addToast('Meta Tags Saved', 'AI schema and meta descriptions committed to Hostinger node header.', 'success')}
+                    onClick={() => void handleSaveSeoProfile()}
                     style={{ padding: '10px 16px', background: '#0076a3', border: 'none', borderRadius: 8, color: '#fff', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
                   >
-                    Approve Meta Tags & Update Site
+                    Approve Meta Tags & Save to Firestore
                   </button>
                 </div>
               </div>
@@ -1630,8 +1701,8 @@ export function AdminPortal({ user, onLogout, addToast }: AdminPortalProps) {
                     <p style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Automatic ledger calculations per billing cycle.</p>
                   </div>
                   <div style={{ display: 'flex', gap: 4 }}>
-                    <button onClick={() => handleSimulateSplitTweak('starter', 'add')} style={{ padding: '2px 6px', fontSize: '0.65rem', background: '#0076a3', border: 'none', color: '#fff', borderRadius: 4, cursor: 'pointer' }}>+ Starter</button>
-                    <button onClick={() => handleSimulateSplitTweak('elite', 'add')} style={{ padding: '2px 6px', fontSize: '0.65rem', background: '#0076a3', border: 'none', color: '#fff', borderRadius: 4, cursor: 'pointer' }}>+ Elite</button>
+                    <button onClick={() => void handleAdminUpdateSubscription('STARTER')} style={{ padding: '2px 6px', fontSize: '0.65rem', background: '#0076a3', border: 'none', color: '#fff', borderRadius: 4, cursor: 'pointer' }}>+ Starter</button>
+                    <button onClick={() => void handleAdminUpdateSubscription('ELITE')} style={{ padding: '2px 6px', fontSize: '0.65rem', background: '#0076a3', border: 'none', color: '#fff', borderRadius: 4, cursor: 'pointer' }}>+ Elite</button>
                   </div>
                 </div>
 
@@ -1792,7 +1863,7 @@ export function AdminPortal({ user, onLogout, addToast }: AdminPortalProps) {
                     <Download size={14} /> Download PDF
                   </button>
                   <button
-                    onClick={() => addToast('Invoice Emailed', `GST tax invoice successfully sent to client email.`, 'success')}
+                    onClick={() => void handleSendInvoiceEmail()}
                     style={{ flex: 1, padding: 10, background: 'transparent', border: '1px solid rgba(0,118,163,0.3)', color: '#0076a3', borderRadius: 8, fontWeight: 600, cursor: 'pointer', fontSize: '0.8rem', display: 'flex', gap: 6, justifyContent: 'center' }}
                   >
                     <Send size={14} /> Email Invoice

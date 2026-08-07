@@ -356,23 +356,36 @@ export class ContentService {
 
       // Fallback for missing or failed week generation
       if (!weekPosts.length) {
-        weekPosts = selectedDays.map((day, idx) => ({
-          dayName: day,
-          platform: idx % 2 === 0 ? 'Instagram' : 'Facebook',
-          postType: postTypesList[idx % postTypesList.length],
-          category: categoriesList[idx % categoriesList.length],
-          objective: 'Brand Awareness',
-          headline: `Weekly Highlight: ${context.businessName}`,
-          caption: `Discover what makes ${context.businessName} the top choice for ${context.targetAudience}. ${context.businessUSP || ''}`,
-          cta: 'Learn More',
-          hashtags: ['#BrandAwareness', '#Quality', `#${(context.industry || 'Business').replace(/\s+/g, '')}`],
-          graphicPrompt: `Professional social media graphic for ${context.businessName}, modern design, vibrant colors, premium product aesthetic`,
-          bestPostingTime: '10:00 AM',
-        }));
+        weekPosts = selectedDays.map((day, idx) => {
+          const onboardingBlueprints = [
+            { tag: 'Product Spotlight', template: `Discover the premium quality of ${context.productsServices || context.businessName}. Designed specially for ${context.targetAudience || 'our valued customers'}.`, overlay: `Best of ${context.businessName}` },
+            { tag: 'Customer Benefit', template: `Why choose ${context.businessName}? ${context.businessUSP || 'Unmatched quality, exceptional service, and direct value.'} Perfect for ${context.targetAudience || 'everyone'}.`, overlay: `Why ${context.businessName}?` },
+            { tag: 'Industry Advice', template: `A pro tip from ${context.businessName} in ${context.industry || 'your industry'}: focus on quality details that elevate your experience every single day.`, overlay: `${context.industry || 'Pro'} Tip` },
+            { tag: 'Behind The Craft', template: `Take a look behind the scenes at ${context.businessName}. We take pride in delivering top-notch products for ${context.location || 'our community'}.`, overlay: `Behind the Craft` },
+            { tag: 'Special Announcement', template: `Exciting updates from ${context.businessName}! Achieving your goal of ${context.businessGoals || 'growth'} starts with choosing the right partner.`, overlay: `Special Update` },
+            { tag: 'Weekly Highlight', template: `Elevate your lifestyle with ${context.businessName}. Tailored for ${context.targetAudience || 'fashion enthusiasts'} looking for standard excellence.`, overlay: `Weekly Highlight` },
+            { tag: 'FAQ & Insights', template: `Have questions about ${context.productsServices || context.businessName}? Our team is here to support your journey with ${context.brandTone || 'friendly'} expertise.`, overlay: `Top FAQ Answered` },
+          ];
+          const bp = onboardingBlueprints[idx % onboardingBlueprints.length];
+          return {
+            dayName: day,
+            platform: idx % 3 === 0 ? 'Facebook' : idx % 3 === 1 ? 'Instagram' : 'Both (FB & IG)',
+            postType: postTypesList[idx % postTypesList.length],
+            category: categoriesList[idx % categoriesList.length],
+            objective: 'Brand Awareness',
+            headline: `${bp.tag}: ${context.businessName}`,
+            caption: `${bp.template} Share your thoughts below! 👇`,
+            imageOverlayText: bp.overlay,
+            cta: 'Shop Now',
+            hashtags: [`#${(context.businessName || 'Brand').replace(/\s+/g, '')}`, `#${(context.industry || 'Industry').replace(/\s+/g, '')}`, '#QualityFirst', '#Trending'],
+            graphicPrompt: `Professional social media graphic for ${context.businessName} showcasing ${context.productsServices || 'products'}, modern ${context.brandTone || 'sleek'} aesthetic`,
+            bestPostingTime: '10:00 AM',
+          };
+        });
       }
 
       // Save each post entry into Firestore contentCalendar collection
-      for (const post of weekPosts) {
+      for (const [postIdx, post] of weekPosts.entries()) {
         const dayOffset = daysOffsetMap[post.dayName] ?? 0;
         const scheduledTime = new Date(startMonday);
         scheduledTime.setDate(startMonday.getDate() + (week - 1) * 7 + dayOffset);
@@ -390,6 +403,9 @@ export class ContentService {
           }
         }
 
+        const seedTerm = `${context.businessName}_${context.industry}_${week}_${postIdx}_${Date.now()}`.replace(/[^a-z0-9]/gi, '');
+        const generatedImageUrl = `https://picsum.photos/seed/${seedTerm}/1080/1080`;
+
         const entryPayload = {
           businessId,
           dayName: post.dayName,
@@ -398,9 +414,11 @@ export class ContentService {
           category: post.category || 'Educational',
           objective: post.objective || 'Brand Awareness',
           headline: post.headline || `Highlight for ${context.businessName}`,
-          caption: post.caption || '',
+          caption: post.caption || `Discover what makes ${context.businessName} unique in ${context.industry}.`,
+          imageOverlayText: post.imageOverlayText || post.headline || `Meet ${context.businessName}`,
+          imageUrl: post.imageUrl || generatedImageUrl,
           cta: post.cta || 'Learn More',
-          hashtags: Array.isArray(post.hashtags) ? post.hashtags : ['#Marketing'],
+          hashtags: Array.isArray(post.hashtags) ? post.hashtags : [`#${(context.businessName || 'Brand').replace(/\s+/g, '')}`],
           graphicPrompt: post.graphicPrompt || `Creative promo visual for ${context.businessName}`,
           bestPostingTime: post.bestPostingTime || '10:00 AM',
           scheduledTime,
@@ -639,8 +657,24 @@ export class ContentService {
    * Edits a calendar post entry. Uses Firestore transaction.
    */
   async editPost(id: string, updateData: any, user = 'User') {
-    const entry = await this.firebase.getContentCalendarEntryById(id);
-    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+    let entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) {
+      this.logger.log(`Calendar entry ${id} not found in contentCalendar collection — auto-upserting entry...`);
+      const now = new Date();
+      const upsertPayload = {
+        id,
+        businessId: updateData.businessId || 'default',
+        headline: updateData.headline || 'Scheduled Post',
+        caption: updateData.caption || '',
+        platform: updateData.platform || 'Instagram',
+        status: updateData.status || 'SCHEDULED',
+        updatedAt: now,
+        createdAt: now,
+        ...updateData,
+      };
+      await this.firebase.col('contentCalendar').doc(id).set(upsertPayload, { merge: true });
+      return { success: true, entry: upsertPayload };
+    }
 
     if (updateData.status && updateData.status !== entry.status) {
       this.validateStatusTransition(entry.status, updateData.status);
@@ -716,21 +750,23 @@ export class ContentService {
    */
   async deletePost(id: string, user = 'User') {
     const entry = await this.firebase.getContentCalendarEntryById(id);
-    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+    try {
+      await this.firebase.col('contentCalendar').doc(id).delete();
+      await this.firebase.col('scheduledPosts').doc(id).delete();
+    } catch (err: any) {
+      this.logger.warn(`Could not delete doc ${id}: ${err.message}`);
+    }
 
-    await this.firebase.runTransaction(async (tx) => {
-      const docRef = this.firebase.col('contentCalendar').doc(id);
-      await tx.delete(docRef);
-    });
-
-    await this.firebase.createCalendarAuditTrail({
-      action: 'POST_DELETED',
-      previousValue: entry,
-      newValue: null,
-      user,
-      businessId: entry.businessId,
-      calendarEntryId: id,
-    });
+    if (entry?.businessId) {
+      await this.firebase.createCalendarAuditTrail({
+        action: 'POST_DELETED',
+        previousValue: entry,
+        newValue: null,
+        user,
+        businessId: entry.businessId,
+        calendarEntryId: id,
+      });
+    }
 
     return { success: true, id };
   }
@@ -778,8 +814,18 @@ export class ContentService {
    * Regenerates creative content for a single post using AI.
    */
   async regenerateSinglePost(id: string, user = 'User') {
-    const entry = await this.firebase.getContentCalendarEntryById(id);
-    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+    let entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) {
+      this.logger.log(`Entry ${id} not pre-saved in database — creating fallback entry context for AI regeneration...`);
+      entry = {
+        id,
+        businessId: 'default',
+        postType: 'Image',
+        category: 'Educational',
+        headline: 'Dynamic Post',
+        caption: 'Original post content',
+      };
+    }
 
     const context = await this.businessIntelligence.getBusinessContext(entry.businessId);
 

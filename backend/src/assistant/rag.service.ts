@@ -16,14 +16,13 @@ export class RagService {
   private readonly outOfScopePatterns: RegExp[] = [
     /what is (python|java|javascript|c\+\+|react|angular|vue|rust|go|html|css|php)/i,
     /explain (java|python|react|dsa|oop|recursion|binary tree|linked list|sorting)/i,
-    /who is (virat kohli|shah rukh|modi|biden|trump|obama|messi|ronaldo|elon musk|[a-z]+\s+[a-z]+)/i,
+    /who is (virat kohli|shah rukh|modi|biden|trump|obama|messi|ronaldo|elon musk)/i,
     /who (is|was) the (prime minister|president|king|queen|governor)/i,
     /tell me (a |an )?(joke|story|poem|riddle|fact)/i,
     /write (me )?(a |an )?(poem|song|essay|story|code|script for python|dsa)/i,
     /solve (dsa|leetcode|codeforces|math|equation)/i,
     /weather|temperature|forecast/i,
     /news|politics|sports|cricket|football|movie|film|actor|actress/i,
-    /what is (ai|artificial intelligence|machine learning|deep learning)/i,
     /capital of [a-z]+/i,
     /how to (cook|code in python|learn java|play cricket)/i,
   ];
@@ -81,7 +80,7 @@ export class RagService {
     this.logger.log(`RAG Retrieval top query score for "${query}": ${topScore} (Top chunk: ${scoredChunks[0]?.chunk?.id || 'none'})`);
 
     // Threshold cutoff (min score required to consider context relevant)
-    const RELEVANCE_THRESHOLD = 3.5;
+    const RELEVANCE_THRESHOLD = 0.5;
 
     if (topScore < RELEVANCE_THRESHOLD && !this.hasDirectDipariAIMatch(trimmed)) {
       return {
@@ -121,7 +120,12 @@ export class RagService {
   }
 
   private hasDirectDipariAIMatch(trimmed: string): boolean {
-    const directKeywords = ['campaignai', 'campaign', 'meta', 'facebook', 'instagram', 'lead', 'analytics', 'scheduler', 'onboarding', 'roas'];
+    const directKeywords = [
+      'dipari', 'campaignai', 'campaign', 'meta', 'facebook', 'instagram',
+      'lead', 'analytic', 'analytics', 'anaytics', 'scheduler', 'schedule',
+      'onboarding', 'roas', 'platform', 'feature', 'help', 'app', 'tool',
+      'website', 'seo', 'post', 'ad', 'subscription', 'plan', 'billing', 'price', 'cost'
+    ];
     return directKeywords.some(kw => trimmed.includes(kw));
   }
 

@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  Res,
 } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/create-payment.dto';
@@ -80,5 +81,35 @@ export class PaymentController {
   async getPaymentStatus(@Param('paymentRequestId') paymentRequestId: string) {
     this.logger.log(`GET /payment/status/${paymentRequestId} called`);
     return this.paymentService.getPaymentStatus(paymentRequestId);
+  }
+
+  /**
+   * Send UPI Collect Push notification to user's UPI App VPA handle
+   * POST /payment/send-upi-collect
+   */
+  @Post('send-upi-collect')
+  async sendUpiCollect(@Body() body: { paymentRequestId: string; vpa: string }) {
+    return this.paymentService.sendUpiCollect(body.paymentRequestId, body.vpa);
+  }
+
+  /**
+   * Confirm UPI Payment Approval
+   * POST /payment/confirm-upi
+   */
+  @Post('confirm-upi')
+  async confirmUpiPayment(@Body() body: { paymentRequestId: string }) {
+    return this.paymentService.confirmUpiPayment(body.paymentRequestId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('invoice/:paymentId')
+  async downloadInvoice(@Param('paymentId') paymentId: string, @Res() res: any) {
+    const invoice = await this.paymentService.downloadInvoice(paymentId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${invoice.fileName}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    return res.send(invoice.pdfBuffer);
   }
 }

@@ -68,12 +68,37 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     if (!businessId) return;
     
     try {
-      const data = await api.content.getCalendar(businessId);
-      setCalendarEntries(data.entries || []);
+      const [calendarData, schedulerData] = await Promise.allSettled([
+        api.content.getCalendar(businessId),
+        api.scheduler.getPosts(businessId),
+      ]);
+
+      const calendarList = calendarData.status === 'fulfilled' ? (calendarData.value?.entries || []) : [];
+      const schedulerList = schedulerData.status === 'fulfilled' ? (schedulerData.value?.posts || []) : [];
+
+      const existingIds = new Set(calendarList.map((e: any) => e.id));
+
+      const normalizedScheduled = schedulerList
+        .filter((sp: any) => !existingIds.has(sp.id))
+        .map((sp: any) => ({
+          id: sp.id,
+          dayName: new Date(sp.scheduledTime?._seconds ? sp.scheduledTime._seconds * 1000 : sp.scheduledTime).toLocaleDateString('en-US', { weekday: 'long' }),
+          platform: sp.platform || 'both',
+          postType: sp.postType || 'Instant Post',
+          contentIdea: sp.headline || (sp.caption ? sp.caption.substring(0, 45) + '...' : 'Scheduled Post'),
+          contentDescription: sp.caption || '',
+          caption: sp.caption || '',
+          hashtags: sp.hashtags || [],
+          status: sp.status || 'SCHEDULED',
+          scheduledTime: sp.scheduledTime,
+          imageUrl: sp.imageUrl || '',
+          isSchedulerPost: true,
+        }));
+
+      const merged = [...calendarList, ...normalizedScheduled];
+      setCalendarEntries(merged);
     } catch (err: any) {
       onToast('Error', err.message || 'Failed to load content calendar', 'alert');
-    } finally {
-      
     }
   };
 
@@ -256,11 +281,21 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
         imageOverlayText: previewDraft.imageOverlayText,
         profileBio: previewDraft.bio,
         platform: previewDraft.platform === 'facebook' ? 'Facebook' : 'Instagram',
-        scheduledTime: previewEntry.scheduledTime ? new Date(previewEntry.scheduledTime).toISOString() : new Date().toISOString(),
+        scheduledTime: (() => {
+          if (!previewEntry.scheduledTime) return new Date().toISOString();
+          const d = new Date(previewEntry.scheduledTime);
+          return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+        })(),
         postType: previewEntry.postType,
       });
 
-      await api.content.updateEntry(previewEntry.id, { status: 'SCHEDULED' });
+      await api.content.updateEntry(previewEntry.id, {
+        businessId,
+        status: 'SCHEDULED',
+        caption: previewDraft.caption,
+        imageUrl: previewDraft.imageUrl,
+        imageOverlayText: previewDraft.imageOverlayText,
+      });
       onToast('Scheduled', `Post added to scheduler queue!`, 'success');
       setPreviewEntry(null);
       await fetchCalendar();
@@ -1149,8 +1184,8 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
       )}
 
       {previewEntry && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(15, 23, 42, 0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div style={{ width: 'min(1080px, 100%)', maxHeight: '94vh', overflowY: 'auto', background: '#ffffff', borderRadius: '18px', padding: '24px', boxShadow: '0 25px 60px rgba(15,23,42,.35)' }}>
+        <div onClick={() => setPreviewEntry(null)} style={{ position: 'fixed', inset: 0, zIndex: 120, background: 'rgba(15, 23, 42, 0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', cursor: 'pointer' }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: 'min(1080px, 100%)', maxHeight: '94vh', overflowY: 'auto', background: '#ffffff', borderRadius: '18px', padding: '24px', boxShadow: '0 25px 60px rgba(15,23,42,.35)', cursor: 'default' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
               <div>
                 <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.15rem' }}>Review post before scheduling</h3>
@@ -1162,13 +1197,20 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 380px) 1fr', gap: '24px', alignItems: 'start' }}>
               <div>
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                  <button type="button" onClick={() => setPreviewDraft(prev => ({ ...prev, platform: 'facebook' }))} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: previewDraft.platform === 'facebook' ? '2px solid #1877f2' : '1px solid #cbd5e1', background: previewDraft.platform === 'facebook' ? '#eff6ff' : '#fff', color: '#1e293b', cursor: 'pointer', fontWeight: 700 }}>Facebook</button>
-                  <button type="button" onClick={() => setPreviewDraft(prev => ({ ...prev, platform: 'instagram' }))} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: previewDraft.platform === 'instagram' ? '2px solid #d946ef' : '1px solid #cbd5e1', background: previewDraft.platform === 'instagram' ? '#fdf4ff' : '#fff', color: '#1e293b', cursor: 'pointer', fontWeight: 700 }}>Instagram</button>
+                  <button type="button" onClick={() => setPreviewDraft(prev => ({ ...prev, platform: 'facebook' }))} style={{ flex: 1, padding: '8px 4px', borderRadius: '8px', border: previewDraft.platform === 'facebook' ? '2px solid #1877f2' : '1px solid #cbd5e1', background: previewDraft.platform === 'facebook' ? '#eff6ff' : '#fff', color: '#1e293b', cursor: 'pointer', fontWeight: 700, fontSize: '0.78rem' }}>Facebook</button>
+                  <button type="button" onClick={() => setPreviewDraft(prev => ({ ...prev, platform: 'instagram' }))} style={{ flex: 1, padding: '8px 4px', borderRadius: '8px', border: previewDraft.platform === 'instagram' ? '2px solid #d946ef' : '1px solid #cbd5e1', background: previewDraft.platform === 'instagram' ? '#fdf4ff' : '#fff', color: '#1e293b', cursor: 'pointer', fontWeight: 700, fontSize: '0.78rem' }}>Instagram</button>
+                  <button type="button" onClick={() => setPreviewDraft(prev => ({ ...prev, platform: 'both' }))} style={{ flex: 1, padding: '8px 4px', borderRadius: '8px', border: previewDraft.platform === 'both' ? '2px solid #4f46e5' : '1px solid #cbd5e1', background: previewDraft.platform === 'both' ? '#eeef4f' : '#fff', color: '#1e293b', cursor: 'pointer', fontWeight: 700, fontSize: '0.78rem' }}>Both (FB & IG)</button>
                 </div>
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: '14px', overflow: 'hidden', background: '#fff' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '12px', borderBottom: '1px solid #f1f5f9' }}>
-                    <div style={{ width: 32, height: 32, borderRadius: '50%', background: previewDraft.platform === 'facebook' ? '#1877f2' : 'linear-gradient(135deg,#f97316,#d946ef)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800 }}>H</div>
-                    <div><strong style={{ display: 'block', fontSize: '0.8rem' }}>helloworld</strong><span style={{ color: '#64748b', fontSize: '0.68rem' }}>{previewDraft.bio || 'Your profile bio'}</span></div>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: '50%',
+                      background: previewDraft.platform === 'facebook' ? '#1877f2' : previewDraft.platform === 'instagram' ? 'linear-gradient(135deg,#f97316,#d946ef)' : 'linear-gradient(135deg,#1877f2,#d946ef)',
+                      color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 800
+                    }}>
+                      {previewDraft.platform === 'both' ? 'FB+IG' : 'H'}
+                    </div>
+                    <div><strong style={{ display: 'block', fontSize: '0.8rem' }}>helloworld</strong><span style={{ color: '#64748b', fontSize: '0.68rem' }}>{previewDraft.bio || 'Your profile bio'} ({previewDraft.platform.toUpperCase()})</span></div>
                   </div>
                   <div style={{ position: 'relative', aspectRatio: '1', background: '#e2e8f0' }}>
                     <img src={previewDraft.imageUrl} alt="Social post preview" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />

@@ -1,11 +1,7 @@
-import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, Query, BadRequestException } from '@nestjs/common';
 import { SchedulerService } from './scheduler.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-
 import { calculateScheduleDetails, FrequencyRule } from '../utils/schedule-calculator';
-
 import { CloudTasksService, ScheduledPostTask } from './cloud-tasks.service';
-
 import { SpecialEventsService } from './special-events.service';
 
 @Controller('scheduler')
@@ -98,6 +94,9 @@ export class SchedulerController {
     scheduledTime: string;
     postType?: string;
   }) {
+    if (!body?.businessId || !body?.caption || !body?.platform || !body?.scheduledTime) {
+      throw new BadRequestException('businessId, caption, platform, and scheduledTime are required');
+    }
     return this.schedulerService.schedulePost(body);
   }
 
@@ -134,7 +133,7 @@ export class SchedulerController {
     return this.schedulerService.reschedulePost(id, body.scheduledTime);
   }
 
-  /** POST /scheduler/schedule/organic — Schedule organic post to target 10:00 AM local timezone slot */
+  /** POST /scheduler/schedule/organic — Schedule organic post to target local timezone slot */
   @Post('schedule/organic')
   async scheduleOrganicPost(@Body() body: {
     businessId: string;
@@ -148,7 +147,7 @@ export class SchedulerController {
     return this.schedulerService.scheduleOrganicPost(body);
   }
 
-  /** POST /scheduler/schedule/organic-batch — Schedule a batch of organic posts at computed 10:00 AM slots */
+  /** POST /scheduler/schedule/organic-batch — Schedule a batch of organic posts */
   @Post('schedule/organic-batch')
   async scheduleOrganicBatch(@Body() body: {
     businessId: string;
@@ -168,7 +167,14 @@ export class SchedulerController {
   }
 
   @Post('instant-week')
-  async scheduleInstantWeek(@Body() body: { businessId: string; count?: number; platforms?: string; timezone?: string }) {
+  async scheduleInstantWeek(@Body() body: {
+    businessId: string;
+    count?: number;
+    daysMode?: string;
+    publishTime?: string;
+    platforms?: string;
+    timezone?: string;
+  }) {
     if (!body?.businessId) return { success: false, message: 'businessId is required' };
     return this.schedulerService.scheduleInstantWeek(body);
   }
@@ -182,7 +188,7 @@ export class SchedulerController {
     return this.schedulerService.getCalendarView(businessId);
   }
 
-  /** POST /scheduler/worker/publish-organic — Worker endpoint triggered at 10:00 AM slot */
+  /** POST /scheduler/worker/publish-organic — Worker endpoint */
   @Post('worker/publish-organic')
   async publishOrganicWorker(@Body() body: { postId: string }) {
     if (!body?.postId) {
@@ -201,7 +207,7 @@ export class SchedulerController {
     };
   }
 
-  /** POST /scheduler/special-events/generate — Generates AI event campaign & schedules for 10 AM */
+  /** POST /scheduler/special-events/generate — Generates AI event campaign */
   @Post('special-events/generate')
   async generateEventCampaign(@Body() body: { businessId: string; eventName?: string }) {
     if (!body?.businessId) {

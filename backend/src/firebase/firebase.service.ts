@@ -412,6 +412,11 @@ export class FirebaseService implements OnModuleInit {
           }
         }
         this.db = admin.firestore();
+        try {
+          this.db.settings({ ignoreUndefinedProperties: true });
+        } catch {
+          // Ignore if settings already initialized
+        }
       }
     }
     return this.db;
@@ -459,6 +464,7 @@ export class FirebaseService implements OnModuleInit {
   }
 
   async getUserById(id: string) {
+    if (!id || typeof id !== 'string' || !id.trim()) return null;
     const doc = await this.col('users').doc(id).get();
     return this.snap<any>(doc);
   }
@@ -515,6 +521,7 @@ export class FirebaseService implements OnModuleInit {
   }
 
   async getBusinessById(id: string) {
+    if (!id || typeof id !== 'string' || !id.trim()) return null;
     const doc = await this.col('businesses').doc(id).get();
     return this.snap<any>(doc);
   }
@@ -854,6 +861,37 @@ export class FirebaseService implements OnModuleInit {
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   }
 
+  async getAdminConfig<T = any>(key: string): Promise<T | null> {
+    if (!key) return null;
+    const doc = await this.col('adminConfig').doc(key).get();
+    return this.snap<T>(doc);
+  }
+
+  async setAdminConfig(key: string, data: Record<string, any>) {
+    if (!key) return null;
+    await this.col('adminConfig').doc(key).set({ ...data, updatedAt: new Date() }, { merge: true });
+    const doc = await this.col('adminConfig').doc(key).get();
+    return { id: key, ...doc.data() };
+  }
+
+  async getBusinessSeoAudit(businessId: string) {
+    if (!businessId) return null;
+    const doc = await this.col('businessSeoProfiles').doc(businessId).get();
+    return this.snap<any>(doc);
+  }
+
+  async setBusinessSeoAudit(businessId: string, data: Record<string, any>) {
+    if (!businessId) return null;
+    await this.col('businessSeoProfiles').doc(businessId).set({ businessId, ...data, updatedAt: new Date() }, { merge: true });
+    const doc = await this.col('businessSeoProfiles').doc(businessId).get();
+    return { id: businessId, ...doc.data() };
+  }
+
+  async getAllPayments() {
+    const snap = await this.col('payments').get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  }
+
   // ─── Support Tickets ──────────────────────────────────────────────────────────
 
   async createSupportTicket(data: Record<string, any>) {
@@ -1006,9 +1044,31 @@ export class FirebaseService implements OnModuleInit {
   }
 
   async getContentCalendarEntryById(id: string) {
+    if (!id) return null;
     const snap = await this.col('contentCalendar').doc(id).get();
-    if (!snap.exists) return null;
-    return { id: snap.id, ...snap.data() };
+    if (snap.exists) return { id: snap.id, ...snap.data() };
+
+    // Fallback: Check scheduledPosts collection if entry ID originated from post scheduler
+    const schedSnap = await this.col('scheduledPosts').doc(id).get();
+    if (schedSnap.exists) {
+      const data = schedSnap.data() as any;
+      return {
+        id: schedSnap.id,
+        businessId: data.businessId || 'default',
+        headline: data.headline || data.contentIdea || 'Scheduled Post',
+        caption: data.caption || '',
+        platform: data.platform || 'Instagram',
+        postType: data.postType || 'Image',
+        status: data.status || 'SCHEDULED',
+        scheduledTime: data.scheduledTime,
+        imageUrl: data.imageUrl,
+        imageOverlayText: data.imageOverlayText,
+        hashtags: data.hashtags || [],
+        ...data,
+      };
+    }
+
+    return null;
   }
 
   async deleteContentCalendarEntry(id: string) {

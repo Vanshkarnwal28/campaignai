@@ -682,7 +682,7 @@ export const api = {
       return await handleResponse(res);
     },
 
-    async scheduleInstantWeek(data: { businessId: string; count?: number; platforms?: string; timezone?: string }) {
+    async scheduleInstantWeek(data: { businessId: string; count?: number; daysMode?: string; publishTime?: string; platforms?: string; timezone?: string }) {
       const res = await fetch(`${BASE_URL}/scheduler/instant-week`, {
         method: 'POST', headers: getHeaders(), body: JSON.stringify(data),
       });
@@ -1169,6 +1169,47 @@ export const api = {
       });
       return await handleResponse(res);
     },
+
+    async runSeoAudit(businessId: string, url?: string) {
+      const res = await fetch(`${BASE_URL}/admin/businesses/${businessId}/seo-audit`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ url }),
+      });
+      return await handleResponse(res);
+    },
+
+    async getSeoProfile(businessId: string) {
+      const res = await fetch(`${BASE_URL}/admin/businesses/${businessId}/seo-profile`, { headers: getHeaders() });
+      return await handleResponse(res);
+    },
+
+    async updateSeoProfile(businessId: string, seoData: any) {
+      const res = await fetch(`${BASE_URL}/admin/businesses/${businessId}/seo-profile`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify(seoData),
+      });
+      return await handleResponse(res);
+    },
+
+    async sendInvoiceEmail(businessId: string, invoiceId?: string) {
+      const res = await fetch(`${BASE_URL}/admin/businesses/${businessId}/invoice/send`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ invoiceId }),
+      });
+      return await handleResponse(res);
+    },
+
+    async updateSubscription(businessId: string, plan: string) {
+      const res = await fetch(`${BASE_URL}/admin/businesses/${businessId}/subscription`, {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify({ plan }),
+      });
+      return await handleResponse(res);
+    },
   },
 
   payment: {
@@ -1177,6 +1218,40 @@ export const api = {
         headers: getHeaders(),
       });
       return await handleResponse(res);
+    },
+    async createPayment(businessId: string, plan: string) {
+      const res = await fetch(`${BASE_URL}/payment/create`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ businessId, plan }),
+      });
+      return await handleResponse(res);
+    },
+    async sendUpiCollect(paymentRequestId: string, vpa: string) {
+      const res = await fetch(`${BASE_URL}/payment/send-upi-collect`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ paymentRequestId, vpa }),
+      });
+      return await handleResponse(res);
+    },
+    async confirmUpiPayment(paymentRequestId: string) {
+      const res = await fetch(`${BASE_URL}/payment/confirm-upi`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ paymentRequestId }),
+      });
+      return await handleResponse(res);
+    },
+    async downloadInvoice(paymentId: string) {
+      const res = await fetch(`${BASE_URL}/payment/invoice/${encodeURIComponent(paymentId)}`, {
+        headers: { Authorization: getHeaders().Authorization || '' },
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new ApiResponseError(errorData.message || 'Invoice download failed', res.status);
+      }
+      return { blob: await res.blob(), fileName: res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || `invoice-${paymentId}.pdf` };
     },
   },
 

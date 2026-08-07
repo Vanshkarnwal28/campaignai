@@ -3,6 +3,7 @@ import { FirebaseService } from '../firebase/firebase.service';
 import { IntegrationsService } from '../integrations/integrations.service';
 import { AiService } from '../ai/ai.service';
 import { BusinessIntelligenceService } from '../business/business-intelligence.service';
+import { ContentService } from '../content/content.service';
 
 @Injectable()
 export class CampaignsService {
@@ -13,6 +14,7 @@ export class CampaignsService {
     private readonly integrations: IntegrationsService,
     private readonly aiService: AiService,
     private readonly businessIntelligence: BusinessIntelligenceService,
+    private readonly contentService: ContentService,
   ) {}
 
 
@@ -45,14 +47,25 @@ export class CampaignsService {
       { USP: context.businessUSP, brandTone: context.brandTone, languages: context.languages },
     );
 
-    // 2. Save Creative to Firestore
+    // 2. Generate custom 1080x1080 branded graphic asset via ContentService
+    let imageUrl = '';
+    try {
+      const bannerText = aiCreative.headline || context.currentOffer || data.creativePrompt || 'SPECIAL OFFER';
+      const graphicResult = await this.contentService.generateBrandedGraphic(businessId, bannerText);
+      imageUrl = typeof graphicResult === 'string' ? graphicResult : (graphicResult as any)?.imageUrl || (graphicResult as any)?.publicUrl || '';
+    } catch (err: any) {
+      this.logger.warn(`Fallback to seeded banner URL: ${err.message}`);
+      const imageSeed = `${encodeURIComponent((data.creativePrompt || 'creative').replace(/[^a-zA-Z0-9]/g, ''))}_${Date.now()}`;
+      imageUrl = `https://picsum.photos/seed/${imageSeed}/800/600`;
+    }
+
     const creative = await this.firebase.createCreative({
       businessId,
       headline: aiCreative.headline,
       description: aiCreative.description,
       primaryText: aiCreative.primaryText,
       cta: aiCreative.cta,
-      imageUrl: null,
+      imageUrl,
       imagePrompt: aiCreative.imagePrompt,
     });
 

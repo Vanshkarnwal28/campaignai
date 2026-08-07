@@ -301,6 +301,184 @@ export class PaymentService {
   }
 
   /**
+   * Send UPI Collect Push to user's VPA (Virtual Payment Address) via Instamojo
+   */
+  async sendUpiCollect(paymentRequestId: string, vpa: string) {
+    this.logger.log(`Sending UPI Collect for paymentRequestId: ${paymentRequestId}, VPA: ${vpa}`);
+    const apiKey = process.env.INSTAMOJO_API_KEY;
+    const authToken = process.env.INSTAMOJO_AUTH_TOKEN;
+    const baseUrl = process.env.INSTAMOJO_BASE_URL || 'https://api.instamojo.com';
+
+    if (!apiKey || !authToken) {
+      throw new BadRequestException('Payment gateway credentials not configured');
+    }
+
+    const formData = new URLSearchParams();
+    formData.append('vpa', vpa);
+    formData.append('payment_request_id', paymentRequestId);
+
+    try {
+      const res = await axios.post(
+        `${baseUrl.replace(/\/$/, '')}/api/1.1/send-upi-collect/`,
+        formData.toString(),
+        {
+          headers: {
+            'X-Api-Key': apiKey,
+            'X-Auth-Token': authToken,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+        },
+      );
+      return { success: true, data: res.data };
+    } catch (err: any) {
+      const errMsg = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      this.logger.warn(`UPI Collect failed: ${errMsg}`);
+      return { success: false, message: errMsg };
+    }
+  }
+
+  /**
+   * Confirm UPI Payment Approval status from Instamojo
+   */
+  async confirmUpiPayment(paymentRequestId: string) {
+    this.logger.log(`Confirming UPI payment for paymentRequestId: ${paymentRequestId}`);
+    const apiKey = process.env.INSTAMOJO_API_KEY;
+    const authToken = process.env.INSTAMOJO_AUTH_TOKEN;
+    const baseUrl = process.env.INSTAMOJO_BASE_URL || 'https://api.instamojo.com';
+
+    if (!apiKey || !authToken) {
+      throw new BadRequestException('Payment gateway credentials not configured');
+    }
+
+    try {
+      const res = await axios.get(
+        `${baseUrl.replace(/\/$/, '')}/api/1.1/payment-requests/${paymentRequestId}/`,
+        {
+          headers: {
+            'X-Api-Key': apiKey,
+            'X-Auth-Token': authToken,
+          },
+        },
+      );
+      const req = res.data?.payment_request;
+      const isCompleted = req?.status === 'Completed' || req?.payments?.some((p: any) => p.status === 'Credit');
+
+      if (isCompleted) {
+        const doc = await this.firebase.col('payments').doc(paymentRequestId).get();
+        const paymentData = doc.exists ? doc.data() : {};
+        await this.firebase.col('payments').doc(paymentRequestId).set(
+          { status: 'PAID', updatedAt: new Date().toISOString() },
+          { merge: true },
+        );
+        if (paymentData?.businessId) {
+          await this.activateSubscription(paymentData.businessId, paymentData.plan, req?.payments?.[0]?.payment_id, paymentRequestId);
+        }
+      }
+
+      return { success: true, confirmed: isCompleted, status: req?.status || 'UNKNOWN' };
+    } catch (err: any) {
+      const errMsg = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      this.logger.warn(`UPI confirmation failed: ${errMsg}`);
+      return { success: false, confirmed: false, message: errMsg };
+    }
+  }
+
+  /**
+   * Download payment invoice as PNG image (branded receipt)
+   */
+  async downloadInvoice(paymentId: string): Promise<{ pdfBuffer: Buffer; fileName: string }> {
+    this.logger.log(`Generating invoice for paymentId: ${paymentId}`);
+
+    // Find payment by doc ID or paymentId field
+    let paymentData: any = null;
+    const directDoc = await this.firebase.col('payments').doc(paymentId).get();
+    if (directDoc.exists) {
+      paymentData = directDoc.data();
+    } else {
+      const snap = await this.firebase.col('payments').where('paymentId', '==', paymentId).limit(1).get();
+      if (!snap.empty) paymentData = snap.docs[0].data();
+    }
+
+    if (!paymentData) {
+      throw new NotFoundException(`Payment record not found for ID: ${paymentId}`);
+    }
+
+    // Generate branded invoice PNG using canvas
+    const { createCanvas } = await import('@napi-rs/canvas');
+    const width = 794;
+    const height = 1123; // A4 proportional
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = '#0B1727';
+    ctx.fillRect(0, 0, width, height);
+
+    // Header bar
+    const headerGrad = ctx.createLinearGradient(0, 0, width, 0);
+    headerGrad.addColorStop(0, '#7C3AED');
+    headerGrad.addColorStop(1, '#6366F1');
+    ctx.fillStyle = headerGrad;
+    ctx.fillRect(0, 0, width, 120);
+
+    // Company name
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 36px sans-serif';
+    ctx.fillText('CampaignAI', 40, 60);
+    ctx.font = '16px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    ctx.fillText('Payment Invoice', 40, 90);
+
+    // Invoice badge
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(width - 200, 30, 160, 60);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillText('INVOICE', width - 170, 58);
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillText(new Date(paymentData.createdAt || Date.now()).toLocaleDateString('en-IN'), width - 175, 78);
+
+    // Details section
+    const details = [
+      ['Plan', paymentData.plan || 'N/A'],
+      ['Amount', `₹${(paymentData.amount || 0).toFixed(2)} ${paymentData.currency || 'INR'}`],
+      ['Status', paymentData.status || 'N/A'],
+      ['Payment ID', paymentId],
+      ['Business ID', paymentData.businessId || 'N/A'],
+      ['Date', new Date(paymentData.createdAt || Date.now()).toLocaleDateString('en-IN')],
+    ];
+
+    let y = 180;
+    for (const [label, value] of details) {
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(40, y, width - 80, 48);
+      ctx.fillStyle = 'rgba(124,58,237,0.8)';
+      ctx.fillRect(40, y, 4, 48);
+      ctx.fillStyle = 'rgba(255,255,255,0.5)';
+      ctx.font = '13px sans-serif';
+      ctx.fillText(label, 60, y + 20);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(String(value), 60, y + 40);
+      y += 60;
+    }
+
+    // Footer
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(0, height - 80, width, 80);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('Thank you for your business! Support: support@campaignai.app', 40, height - 45);
+    ctx.fillText('CampaignAI © 2025 — All rights reserved', 40, height - 25);
+
+    const pdfBuffer = canvas.toBuffer('image/png');
+    const fileName = `Invoice_${paymentId}_${Date.now()}.png`;
+
+    return { pdfBuffer, fileName };
+  }
+
+  /**
    * Internal Helper: Activate user subscription in Firestore
    */
   private async activateSubscription(businessId: string, plan: string, paymentId?: string, paymentRequestId?: string) {

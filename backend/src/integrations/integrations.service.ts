@@ -760,13 +760,16 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
 
     let pages: any[] = pageList.map(p => ({
       id: p.id,
-      name: p.name,
+      name: p.name || 'Facebook Page',
       accessToken: p.access_token || accessToken,
-      category: p.category,
-      isMockFallback: p.isMockFallback,
+      category: p.category || 'General',
+      isMockFallback: !!p.isMockFallback,
     }));
 
-    let instagramAccounts = Array.from(igAccountsMap.values());
+    let instagramAccounts = Array.from(igAccountsMap.values()).map(i => ({
+      ...i,
+      isMockFallback: !!i.isMockFallback,
+    }));
 
     if (pages.length === 0) {
       this.logger.warn('[Meta Fallback Mode] Permission restriction or empty Meta API response. Injecting Brand Facebook Page test asset.');
@@ -838,16 +841,28 @@ Return ONLY valid JSON in this exact format (no markdown, no code fences):
       const isMockFallback = adAccounts.some(a => a.isMockFallback) || pages.some(p => p.isMockFallback) || instagramAccounts.some(i => i.isMockFallback);
 
       return {
-        isMockFallback,
+        isMockFallback: !!isMockFallback,
         adAccounts: adAccounts.map(a => ({
           id: a.id,
           name: a.name || `Ad Account (${a.id})`,
           currency: a.currency || 'INR',
           account_status: a.account_status || 1,
-          isMockFallback: a.isMockFallback,
+          isMockFallback: !!a.isMockFallback,
         })),
-        pages,
-        instagramAccounts,
+        pages: pages.map(p => ({
+          id: p.id,
+          name: p.name || 'Facebook Page',
+          accessToken: p.accessToken || accessToken,
+          category: p.category || '',
+          isMockFallback: !!p.isMockFallback,
+        })),
+        instagramAccounts: instagramAccounts.map(i => ({
+          id: i.id,
+          username: i.username || `@ig_${i.id}`,
+          name: i.name || '',
+          pageId: i.pageId || '',
+          isMockFallback: !!i.isMockFallback,
+        })),
       };
     } catch (err: any) {
       this.logger.warn('[Meta Fallback Bridge] Error fetching Meta channels: ' + (err.response?.data?.error?.message || err.message) + '. Serving active fallback business assets.');

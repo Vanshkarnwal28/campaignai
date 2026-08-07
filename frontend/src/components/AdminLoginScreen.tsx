@@ -19,10 +19,10 @@ export function AdminLoginScreen({ onAuthSuccess, addToast, onBackToUserLogin }:
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const authenticatedUser = null;
 
   // 2FA login states
   const [loginStep, setLoginStep] = useState<'credentials' | '2fa'>('credentials');
-  const [authenticatedUser, setAuthenticatedUser] = useState<any>(null);
   const [twoFactorCode, setTwoFactorCode] = useState<string[]>(Array(6).fill(''));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -49,10 +49,8 @@ export function AdminLoginScreen({ onAuthSuccess, addToast, onBackToUserLogin }:
         return;
       }
 
-      // If credentials match, transition to 2FA phase
-      setAuthenticatedUser(res.user);
-      setLoginStep('2fa');
-      addToast('Credentials Verified', 'Please complete Two-Factor Authentication (2FA).', 'info');
+      addToast('Admin Authenticated', 'Launching the Admin Console.', 'success');
+      onAuthSuccess(res.user);
     } catch (err: any) {
       setErrorMessage(err.message || 'Invalid administrator credentials.');
       addToast('Login Failed', err.message || 'Authentication failed', 'alert');

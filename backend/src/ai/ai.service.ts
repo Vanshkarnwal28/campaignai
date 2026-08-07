@@ -83,14 +83,20 @@ export class AiService {
   private readonly baseUrl = 'https://openrouter.ai/api/v1/chat/completions';
   private readonly timeoutMs = 30_000;
 
+  private readonly groqApiKey: string;
+  private readonly groqModel: string;
+  private readonly groqBaseUrl = 'https://api.groq.com/openai/v1/chat/completions';
+
   constructor() {
     this.apiKey = process.env.OPENROUTER_API_KEY || '';
     this.defaultModel = process.env.OPENROUTER_MODEL || 'google/gemma-4-31b-it:free';
+    this.groqApiKey = process.env.GROQ_API_KEY || '';
+    this.groqModel = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
 
-    if (!this.apiKey) {
-      this.logger.warn('OPENROUTER_API_KEY is not set. AI features will use fallback responses.');
+    if (!this.apiKey && !this.groqApiKey) {
+      this.logger.warn('Neither OPENROUTER_API_KEY nor GROQ_API_KEY is set. AI features will use fallback responses.');
     } else {
-      this.logger.log(`AIService initialized. Default model: ${this.defaultModel}`);
+      this.logger.log(`AIService initialized. Default model: ${this.defaultModel} | Groq fallback: ${this.groqModel}`);
     }
   }
 
@@ -237,63 +243,106 @@ export class AiService {
       `[AIService] Request started | caller=${callerName} | model=${model} | temp=${temperature} | maxTokens=${maxTokens}`,
     );
 
-    if (!this.apiKey) {
-      this.logger.warn(`[AIService] No API key configured — returning null | caller=${callerName}`);
-      return this.buildResponse<T>(null, model, Date.now() - startedAt, false);
-    }
-
-    // ── First attempt ──────────────────────────────────────────────────────
-    let retried = false;
-    try {
-      const text = await this.callOpenRouter(systemPrompt, userPrompt, model, temperature, maxTokens);
-      const data = parser(text);
-      const durationMs = Date.now() - startedAt;
-
-      this.logger.log(
-        `[AIService] Request succeeded | caller=${callerName} | model=${model} | duration=${durationMs}ms | retried=false`,
-      );
-
-      return this.buildResponse<T>(data, model, durationMs, false);
-    } catch (firstErr: any) {
-      const isTransient = this.isTransientError(firstErr);
-
-      if (!isTransient) {
-        const durationMs = Date.now() - startedAt;
-        this.logger.error(
-          `[AIService] Request failed (non-transient) | caller=${callerName} | model=${model} | duration=${durationMs}ms | error=${firstErr.message}`,
-        );
-        return this.buildResponse<T>(null, model, durationMs, false);
-      }
-
-      // ── Single retry with fallback model ───────────────────────────────
-      retried = true;
-      this.logger.warn(
-        `[AIService] Transient error detected — retrying with fallback model | caller=${callerName} | originalError=${firstErr.message}`,
-      );
-
+    // ── First attempt with OpenRouter ──────────────────────────────────────
+    if (this.apiKey) {
       try {
-        const text = await this.callOpenRouter(
-          systemPrompt,
-          userPrompt,
-          this.fallbackModel,
-          temperature,
-          maxTokens,
-        );
+        const text = await this.callOpenRouter(systemPrompt, userPrompt, model, temperature, maxTokens);
         const data = parser(text);
         const durationMs = Date.now() - startedAt;
 
         this.logger.log(
-          `[AIService] Retry succeeded | caller=${callerName} | model=${this.fallbackModel} | duration=${durationMs}ms | retried=true`,
+          `[AIService] OpenRouter request succeeded | caller=${callerName} | model=${model} | duration=${durationMs}ms`,
         );
 
-        return this.buildResponse<T>(data, this.fallbackModel, durationMs, true);
-      } catch (retryErr: any) {
-        const durationMs = Date.now() - startedAt;
-        this.logger.error(
-          `[AIService] Retry also failed | caller=${callerName} | model=${this.fallbackModel} | duration=${durationMs}ms | error=${retryErr.message}`,
+        return this.buildResponse<T>(data, model, durationMs, false);
+      } catch (firstErr: any) {
+        this.logger.warn(
+          `[AIService] OpenRouter primary request failed (${firstErr.message}) — attempting OpenRouter fallback model (${this.fallbackModel})...`,
         );
-        return this.buildResponse<T>(null, this.fallbackModel, durationMs, true);
+
+        try {
+          const text = await this.callOpenRouter(
+            systemPrompt,
+            userPrompt,
+            this.fallbackModel,
+            temperature,
+            maxTokens,
+          );
+          const data = parser(text);
+          const durationMs = Date.now() - startedAt;
+
+          this.logger.log(
+            `[AIService] OpenRouter fallback model succeeded | caller=${callerName} | duration=${durationMs}ms`,
+          );
+
+          return this.buildResponse<T>(data, this.fallbackModel, durationMs, true);
+        } catch (fallbackErr: any) {
+          this.logger.warn(`[AIService] OpenRouter fallback failed: ${fallbackErr.message}. Cascading to Groq AI fallback...`);
+        }
       }
+    } else {
+      this.logger.warn(`[AIService] OPENROUTER_API_KEY is not set or empty. Using Groq AI as primary provider.`);
+    }
+
+    // ── Fallback attempt with Groq AI ───────────────────────────────────────
+    if (this.groqApiKey) {
+      try {
+        this.logger.log(`[AIService] Triggering Groq AI fallback (${this.groqModel}) for caller=${callerName}...`);
+        const groqText = await this.callGroq(systemPrompt, userPrompt, temperature, maxTokens);
+        if (groqText) {
+          const data = parser(groqText);
+          const durationMs = Date.now() - startedAt;
+          this.logger.log(
+            `[AIService] Groq AI fallback succeeded | caller=${callerName} | model=${this.groqModel} | duration=${durationMs}ms`,
+          );
+          return this.buildResponse<T>(data, this.groqModel, durationMs, true);
+        }
+      } catch (groqErr: any) {
+        this.logger.error(`[AIService] Groq AI fallback failed | caller=${callerName} | error=${groqErr.message}`);
+      }
+    }
+
+    const durationMs = Date.now() - startedAt;
+    return this.buildResponse<T>(null, model, durationMs, true);
+  }
+
+  /**
+   * Makes HTTP POST request to Groq API (fallback LLM provider).
+   */
+  private async callGroq(
+    systemPrompt: string,
+    userPrompt: string,
+    temperature = 0.7,
+    maxTokens = 2048,
+  ): Promise<string> {
+    if (!this.groqApiKey) return '';
+    try {
+      this.logger.log(`[AIService] Executing Groq AI request (${this.groqModel})...`);
+      const response = await axios.post(
+        this.groqBaseUrl,
+        {
+          model: this.groqModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature,
+          max_tokens: maxTokens,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${this.groqApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: this.timeoutMs,
+        },
+      );
+
+      const text: string = response.data?.choices?.[0]?.message?.content || '';
+      return text.trim();
+    } catch (err: any) {
+      this.logger.error(`[AIService] Groq API error: ${err?.response?.data?.error?.message || err.message}`);
+      return '';
     }
   }
 

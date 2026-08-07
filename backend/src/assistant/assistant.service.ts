@@ -130,6 +130,7 @@ ${businessPromptContext ? businessPromptContext + '\n\n' : ''}CRITICAL RULES:
    - Provide clear, step-by-step guidance.
    - Mention the relevant page or module name (e.g. Settings → Meta Integration, Lead CRM, Dashboard, Content Calendar).
    - Suggest the logical next step.
+7. FORMATTING CONSTRAINT: Do NOT use markdown double stars (**) or markdown header hashes (###). Provide clean, refined, easy-to-read text with numbered steps or bullet points.
 
 RETRIEVED CAMPAIGNAI KNOWLEDGE CONTEXT:
 ${formattedContext}`;
@@ -138,13 +139,15 @@ ${formattedContext}`;
       `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
     ).join('\n');
 
-    const fullPrompt = `Previous conversation:\n${contextMessages}\n\nUser Question: ${userPrompt}\n\nProvide a step-by-step response based strictly on the retrieved context above.`;
+    const fullPrompt = `Previous conversation:\n${contextMessages}\n\nUser Question: ${userPrompt}\n\nProvide a refined, step-by-step response based strictly on the retrieved context above. Do not use double stars (**) or hash headers (###).`;
 
     try {
       const response = await this.aiService.chat(systemPrompt, fullPrompt, 0.4, 512, 'AssistantService.generateRagResponse');
       if (response && response.trim()) {
         let cleanResponse = response.trim();
         cleanResponse = cleanResponse.replace(/^(User Safety|Safety Rating|Thinking|Reasoning):.*?\n+/gi, '').trim();
+        // Remove raw markdown double stars and header hashes for clean display
+        cleanResponse = cleanResponse.replace(/\*\*(.*?)\*\*/g, '$1').replace(/^#{1,6}\s*/gm, '').trim();
         if (cleanResponse) {
           return cleanResponse;
         }
@@ -165,10 +168,10 @@ ${formattedContext}`;
       return this.ragService.getOutOfScopeResponse();
     }
 
-    let reply = `**${chunk.title}** (${chunk.module} — ${chunk.pageUrl})\n\n${chunk.content}\n\n`;
+    let reply = `${chunk.title} (${chunk.module} — ${chunk.pageUrl})\n\n${chunk.content}\n\n`;
 
     if (chunk.steps && chunk.steps.length > 0) {
-      reply += `**Steps to follow:**\n`;
+      reply += `Steps to follow:\n`;
       chunk.steps.forEach((step, idx) => {
         reply += `${idx + 1}. ${step}\n`;
       });
@@ -176,9 +179,9 @@ ${formattedContext}`;
     }
 
     if (chunk.nextSteps) {
-      reply += `**Suggested Next Step:** ${chunk.nextSteps}`;
+      reply += `Suggested Next Step: ${chunk.nextSteps}`;
     }
 
-    return reply.trim();
+    return reply.replace(/\*\*(.*?)\*\*/g, '$1').trim();
   }
 }
